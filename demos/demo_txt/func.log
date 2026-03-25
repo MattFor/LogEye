@@ -3,3 +3,8 @@
 [0.003s] demo_file_and_filter.py:22 (set) add.b = 3
 [0.003s] demo_file_and_filter.py:23 (set) add.total = 5
 [0.003s] demo_file_and_filter.py:23 (return) add = {'value': 5, 'call_signature': 'add(2, 3)'}
+[0.004s] demo_file_and_filter.py:26 (call) add = {'args': (2, 3), 'kwargs': {}}
+[0.004s] demo_file_and_filter.py:22 (set) add.a = 2
+[0.004s] demo_file_and_filter.py:22 (set) add.b = 3
+[0.004s] demo_file_and_filter.py:23 (set) add.total = 5
+[0.004s] demo_file_and_filter.py:23 (return) add = {'value': 5, 'call_signature': 'add(2, 3)'}

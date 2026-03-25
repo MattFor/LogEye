@@ -1,16 +1,45 @@
-from logeye import log
-
-log("FACTORIAL", show_file=False)
-
-
-@log(mode="edu")
-def factorial(n):
-	if n == 1:
-		return 1
-	return n * factorial(n - 1)
+from logeye import log, l
+from functools import lru_cache
 
 
-factorial(5)
+#
+# Here I just post whatever is fun to try, or to test new features!
+#
+
+
+# @log(mode="educational")
+# def fib(n):
+# 	if n <= 1:
+# 		return n
+# 	return fib(n - 1) + fib(n - 2)
+#
+#
+# fib(5)
+
+l("CACHE MODE")
+
+
+@log(mode="educational", show_wrapper_locals=True)
+@lru_cache(maxsize=None)
+def fib(n):
+	if n <= 1:
+		return n
+	return fib(n - 1) + fib(n - 2)
+
+
+fib(5)
+
+# log("FACTORIAL", show_file=False)
+
+
+# @log(mode="edu")
+# def factorial(n):
+# 	if n == 1:
+# 		return 1
+# 	return n * factorial(n - 1)
+#
+#
+# factorial(5)
 
 # from logeye import log, l
 #

@@ -1,4 +1,4 @@
-from logeye import log
+from logeye import log, l
 
 
 @log
@@ -12,7 +12,10 @@ def total(a, b):
 if __name__ == "__main__":
 	answer = total(3, 4)
 
-	x = log("we")
-	y = log(10)
+	x = "xyz" | l
+
+	x = 10
+	x = {"a": 1, "b": 2}
+	x = "xyz"
 
 	log("test is $x")
