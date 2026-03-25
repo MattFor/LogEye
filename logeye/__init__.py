@@ -1,7 +1,6 @@
 import time
 
-from .pipe import l
-from .core import log, watch
+from .core import watch, _LogAPI
 from .formatting import set_output_formatter, reset_output_formatter
 from .config import (
 	toggle_logs,
@@ -13,7 +12,9 @@ from .config import (
 	set_global_log_file,
 )
 
-w = watch
+log = _LogAPI()  # noqa: E741
+l = log  # noqa: E741
+w = watch  # noqa: E741
 
 _g_start_time = time.perf_counter()
 
