@@ -95,12 +95,12 @@ def _unwrap_value(value: object):
 
 
 def _emit_change(
-	name: str,
-	op: str,
-	state: object = None,
-	filename: str | None = None,
-	lineno: int | None = None,
-	**details: object,
+		name: str,
+		op: str,
+		state: object = None,
+		filename: str | None = None,
+		lineno: int | None = None,
+		**details: object,
 ):
 	"""
 	Emit a mutation event with a readable payload
@@ -121,30 +121,32 @@ def _emit_change(
 
 
 @overload
-def _wrap_value(value: Callable[P, T], name: str | None = None) -> Callable[P, T]: ...
+def _wrap_value(value: Callable[P, T], name: str | None = None, seen: set[int] | None = None) -> Callable[P, T]: ...
 
 
 @overload
-def _wrap_value(value: list[T], name: str | None = ...) -> LoggedList[T]: ...
+def _wrap_value(value: list[T], name: str | None = ..., seen: set[int] | None = None) -> LoggedList[T]: ...
 
 
 @overload
-def _wrap_value(value: Mapping[K, V], name: str | None = ...) -> LoggedDict[K, V]: ...
+def _wrap_value(value: Mapping[K, V], name: str | None = ..., seen: set[int] | None = None) -> LoggedDict[K, V]: ...
 
 
 @overload
-def _wrap_value(value: set[T], name: str | None = ...) -> LoggedSet[T]: ...
+def _wrap_value(value: set[T], name: str | None = ..., seen: set[int] | None = None) -> LoggedSet[T]: ...
 
 
 @overload
-def _wrap_value(value: L, name: str | None = ...) -> L: ...
+def _wrap_value(value: L, name: str | None = ..., seen: set[int] | None = None) -> L: ...
 
 
 @overload
-def _wrap_value(value: T, name: str | None = ...) -> T: ...
+def _wrap_value(value: T, name: str | None = ..., seen: set[int] | None = None) -> T: ...
 
 
-def _wrap_value(value: object, name: str | None = None) -> object:
+# TODO: Maybe use a memoization map for recursive calls so we can maintain the actual values?
+# TODO: Kind of hard to do but may be worth it later
+def _wrap_value(value: object, name: str | None = None, seen: set[int] | None = None) -> object:
 	"""
 	Recursively wrap values so nested structures are tracked
 
@@ -155,6 +157,18 @@ def _wrap_value(value: object, name: str | None = None) -> object:
 	- already wrapped -> returned as-is
 	"""
 
+	if seen is None:
+		seen = set()
+
+	obj_id = id(value)
+
+	# Break the cycle immediately!!!
+	# We have entered a recursive object call!
+	if obj_id in seen:
+		return "<recursive self>"  # Can also be value
+
+	seen.add(obj_id)
+
 	safe_name = name or "NO_NAME_ERR"
 
 	if callable(value):
@@ -164,25 +178,25 @@ def _wrap_value(value: object, name: str | None = None) -> object:
 		return value
 
 	if isinstance(value, dict):
-		return LoggedDict(value, name=safe_name)
+		return LoggedDict(value, name=safe_name, _seen=seen)
 
 	if isinstance(value, Mapping):
-		return LoggedDict(dict(value), name=safe_name)
+		return LoggedDict(dict(value), name=safe_name, _seen=seen)
 
 	if isinstance(value, list):
-		return LoggedList(value, name=safe_name)
+		return LoggedList(value, name=safe_name, _seen=seen)
 
 	if isinstance(value, dict):
-		return LoggedDict(value, name=safe_name)
+		return LoggedDict(value, name=safe_name, _seen=seen)
 
 	if isinstance(value, Mapping):
-		return LoggedDict(dict(value), name=safe_name)
+		return LoggedDict(dict(value), name=safe_name, _seen=seen)
 
 	if isinstance(value, set):
-		return LoggedSet(value, name=safe_name)
+		return LoggedSet(value, name=safe_name, _seen=seen)
 
 	if hasattr(value, "__dict__") and not isinstance(value, type):
-		return LoggedObject(value, name=safe_name)
+		return LoggedObject(value, name=safe_name, _seen=seen)
 
 	return value
 
@@ -198,8 +212,14 @@ class LoggedObject(_BaseLogged, Generic[T]):
 
 	_data: dict[str, object]
 
-	def __init__(self, initial: T = None, name: str = "set") -> None:
-		# NOTE: why setattr? is there a specific reason? regular assignement
+	def __init__(self, initial: T = None, name: str = "set", _seen: set[int] | None = None) -> None:
+		# Prevent recursive self-calls expanding into an infinite recursion chain
+		if _seen is None:
+			_seen = set()
+
+		object.__setattr__(self, "_seen", _seen)
+
+		# NOTE: why setattr? is there a specific reason? regular assignment
 		# is both faster and type safe.
 		# NOTE:  I defined __setattr__, so every normal assignment would
 		# trigger wrapping / logging during init and that could potentially recurse away or corrupt some internal state
@@ -220,7 +240,7 @@ class LoggedObject(_BaseLogged, Generic[T]):
 			)
 
 		for key, value in items:
-			self._data[key] = _wrap_value(value, name=f"{self._log_name}.{key}")
+			self._data[key] = _wrap_value(value, name=f"{name}.{key}", seen=_seen)
 
 	def __getattr__(self, name: str) -> object:
 		data = object.__getattribute__(self, "_data")
@@ -229,6 +249,19 @@ class LoggedObject(_BaseLogged, Generic[T]):
 			return data[name]
 
 		raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
+
+	# WARN: Too dangerous, but we might get confident enough to work with this in the future
+	# obj.items[1].x = 42 exposes the failure
+	# def __getattribute__(self, name: str):
+	# 	if name.startswith("_"):
+	# 		return object.__getattribute__(self, name)
+	#
+	# 	data = object.__getattribute__(self, "_data")
+	#
+	# 	if name in data:
+	# 		return data[name]
+	#
+	# 	return object.__getattribute__(self, name)
 
 	def __setattr__(self, name: str, value: object) -> None:
 		if name.startswith("_"):
@@ -246,16 +279,22 @@ class LoggedObject(_BaseLogged, Generic[T]):
 			filename, lineno = _get_location(frame)
 
 			if callable(wrapped):
-				_emit(
-					"set",
+				_emit_change(
 					f"{log_name}.{name}",
-					f"<func {_path(wrapped)}>",
+					"setattr",
+					state=wrapped,
 					filename=filename,
 					lineno=lineno,
+					value=f"<func {_path(wrapped)}>",
 				)
 			else:
-				_emit(
-					"set", f"{log_name}.{name}", wrapped, filename=filename, lineno=lineno
+				_emit_change(
+					f"{log_name}.{name}",
+					"setattr",
+					state=wrapped,
+					filename=filename,
+					lineno=lineno,
+					value=wrapped,
 				)
 		finally:
 			del frame
@@ -272,18 +311,14 @@ class LoggedObject(_BaseLogged, Generic[T]):
 		try:
 			filename, lineno = _get_location(frame)
 
-			if callable(wrapped):
-				_emit(
-					"set",
-					f"{log_name}.{key}",
-					f"<func {_path(wrapped)}>",
-					filename=filename,
-					lineno=lineno,
-				)
-			else:
-				_emit(
-					"set", f"{log_name}.{key}", wrapped, filename=filename, lineno=lineno
-				)
+			_emit_change(
+				f"{log_name}.{key}",
+				"setitem",
+				state=wrapped,
+				filename=filename,
+				lineno=lineno,
+				value=_unwrap_value(value),
+			)
 		finally:
 			del frame
 
@@ -360,12 +395,21 @@ class LoggedList(list[T], _BaseLogged, Generic[T]):
 	List wrapper that logs mutations like append, sort, pop, extend, etc
 	"""
 
-	def __init__(self, initial: Iterable[T] | None = None, name: str = "set"):
+	def __init__(self, initial: Iterable[T] | None = None, name: str = "set", _seen: set[int] | None = None):
+		# Prevent recursive self-calls expanding into an infinite recursion chain
+		if _seen is None:
+			_seen = set()
+
+		object.__setattr__(self, "_seen", _seen)
 		object.__setattr__(self, "_log_name", name)
+
 		if initial is None:
 			initial: list[T] = []
 
-		items = [_wrap_value(v, name=f"{name}[{i}]") for i, v in enumerate(initial)]
+		items = [
+			_wrap_value(v, name=f"{name}[{i}]", seen=_seen)
+			for i, v in enumerate(initial or [])
+		]
 		super().__init__(items)
 
 	def _emit(self, op: str, **details: object) -> None:
@@ -483,11 +527,17 @@ class LoggedDict(dict[K, V], _BaseLogged, Generic[K, V]):
 	"""
 
 	def __init__(
-		self,
-		initial: Mapping[K, V] | Iterable[tuple[K, V]] | None = None,
-		name: str = "set",
-		**kwargs: object,
+			self,
+			initial: Mapping[K, V] | Iterable[tuple[K, V]] | None = None,
+			name: str = "set",
+			_seen: set[int] | None = None,
+			**kwargs: object,
 	):
+		# Prevent recursive self-calls expanding into an infinite recursion chain
+		if _seen is None:
+			_seen = set()
+
+		object.__setattr__(self, "_seen", _seen)
 		object.__setattr__(self, "_log_name", name)
 
 		if initial is None:
@@ -505,7 +555,11 @@ class LoggedDict(dict[K, V], _BaseLogged, Generic[K, V]):
 
 		super().__init__()
 		for k, v in items:
-			dict.__setitem__(self, k, _wrap_value(v, name=f"{name}.{k}"))
+			dict.__setitem__(
+				self,
+				k,
+				_wrap_value(v, name=f"{name}.{k}", seen=_seen)
+			)
 
 	def _emit(self, op: str, **details) -> None:
 		frame = _caller_frame()
@@ -615,7 +669,12 @@ class LoggedSet(set[T], _BaseLogged, Generic[T]):
 	Set wrapper that logs mutations like add, remove, update, clear, etc
 	"""
 
-	def __init__(self, initial: Iterable[T] | None = None, name: str = "set") -> None:
+	def __init__(self, initial: Iterable[T] | None = None, name: str = "set", _seen: set[int] | None = None) -> None:
+		# Prevent recursive self-calls expanding into an infinite recursion chain
+		if _seen is None:
+			_seen = set()
+
+		object.__setattr__(self, "_seen", _seen)
 		object.__setattr__(self, "_log_name", name)
 
 		if initial is None:

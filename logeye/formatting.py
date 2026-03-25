@@ -12,17 +12,46 @@ if TYPE_CHECKING:
 	from .core import Kind
 
 
+def _is_simple_value(value: object) -> bool:
+	return isinstance(value, (str, int, float, bool, type(None)))
+
+
+def _format_change_payload(
+		name: str,
+		payload: dict[str, object],
+		prefix: str,
+		*,
+		include_kind: bool = True,
+) -> str | None:
+	op = payload.get("op")
+	val = payload.get("value")
+	state = payload.get("state")
+
+	kind_prefix = "(change) " if include_kind else ""
+
+	if op in ("setattr", "setitem"):
+		if _is_simple_value(val):
+			# Simple assignment -> more detail would overcomplicate, is also hard on the eyes
+			return f"{prefix}{kind_prefix}{name} = {val!r}"
+
+		# Complex assignment -> more detail
+		return f"{prefix}{kind_prefix}{name} = {val!r} -> {state}"
+
+	# Skip other operations (kinds)
+	return None
+
+
 def _default_formatter(
-	elapsed: float,
-	kind: Kind,
-	name: str,
-	value: object,
-	filename: str | None,
-	lineno: int | None,
-	*,
-	show_time: bool = True,
-	show_file: bool = True,
-	show_lineno: bool = True,
+		elapsed: float,
+		kind: Kind,
+		name: str,
+		value: object,
+		filename: str | None,
+		lineno: int | None,
+		*,
+		show_time: bool = True,
+		show_file: bool = True,
+		show_lineno: bool = True,
 ):
 	parts = []
 
@@ -122,6 +151,11 @@ def _default_formatter(
 			return f"{value}"
 
 		return f"{prefix}{value}"
+
+	if kind == "change" and isinstance(value, dict) and "op" in value:
+		formatted = _format_change_payload(name, value, prefix)
+		if formatted is not None:
+			return formatted
 
 	return f"{prefix}({kind}) {name} = {value!r}"
 
