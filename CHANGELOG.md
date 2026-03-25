@@ -1,5 +1,149 @@
 # Changelog
 
+## [1.5.0] - 2026-03-?
+
+### Added
+
+* **Global variable tracking improvements**
+
+  * `var = log(val)` now reliably registers variables for continuous tracking
+  * Improved watcher integration with global trace system  
+    For example:
+    ```python
+    x = "xyz" | l
+    
+    x = 10
+    x = {"a": 1, "b": 2}
+    x = "xyz"
+    ```
+    Completely automatically does this!
+    ```commandline
+    [0.000s] demo1.py:15 (set) x = 'xyz'
+    [0.000s] demo1.py:18 (change) x = 10
+    [0.000s] demo1.py:19 (change) x = {'a': 1, 'b': 2}
+    [0.000s] demo1.py:21 (change) x = 'xyz'
+    ```
+
+* **Class instrumentation (`@log` on classes)**
+
+  * Logs `__init__` calls with arguments
+  * Tracks attribute assignments on instances
+  * Supports mutation detection:
+
+    * `(set)` for first assignment
+    * `(change)` for updates
+  * Attribute deletion tracking (`<deleted>`)
+  * Private attributes are now logged with `<priv>` prefix  
+  Automatic garbage noise differentiation between _hidden and _stdlibstuff!
+
+* **Deep nested structure tracking**
+
+  * Enables mutation logging like:
+
+    * `obj.user["name"] = ...`
+    * `obj.items.append(...)`
+
+* **log and l unification**
+
+  * Both log and l now refer to the same function
+  * `log` is now the preferred function for logging
+  * `l` is preferred for pipe operations 
+  ```python
+  x = "xyz" | l # For tracking variables
+  log("X is $x") # For manual logging
+  ```
+
+* **Mixed formatting support**
+
+  * Combine `{}` formatting with `$var` templates:
+
+    ```python
+    log("value: {} and $x", x)
+    ```
+  
+* **Recursive structure protection**
+
+  * Prevents infinite recursion in self-referencing objects
+  * Safe fallback representation for cyclic references
+
+* **Expanded test coverage**
+
+  * Complex object mutation scenarios
+  * Class behaviours (methods, inheritance, overrides)
+  * Edge cases (inline expressions, unpacking, pipes, formatting)
+  * Multi-decorator compatibility tests
+
+
+### Changed
+
+* **Class logging architecture refactor**
+
+  * Removed reliance on internal `_data` for class instances
+  * Switched to direct attribute instrumentation
+  * Clear separation between:
+
+    * class instrumentation
+    * object wrapping system
+
+* **Logging semantics upgraded and fixed**
+
+  * Distinction between:
+    * `(set)` -> initial assignment
+    * `(change)` -> reassignment
+  * More meaningful state transitions in output
+
+* **Formatting consistency overhaul**
+
+  * Unified output across:
+
+    * message logging
+    * function tracing
+    * object mutations
+  * Reduced inconsistencies between different logging paths
+
+
+### Fixed
+
+* Attribute access issues when wrapping class instances
+* Broken method calls on logged class instances (`LoggedObject` conflicts)
+* Nested structure mutations not being tracked correctly
+* List/dict attributes not emitting mutation events
+* Recursion errors in self-referencing structures
+* Mixed formatting (`{}` + `$var`) not expanding correctly
+* Pipe operator edge cases and name inference issues
+
+### Discovered Limitations
+
+* **C-based decorators (e.g. `functools.lru_cache`)**
+
+  * Inner execution cannot be traced due to lack of Python-level introspection
+
+* **Nested assignment unpacking**
+
+  * Complex patterns like:
+
+    ```python
+    (a, (b, c)) = ...
+    ```
+  * Only partially tracked due to Python runtime limitations (no full AST access)  
+  However! I will be getting to this soon!
+
+### Dev 
+
+* Significantly expanded test suite for edge cases and complex scenarios
+* Improved internal structure for future features (method tracing, advanced introspection)
+* Added multiple branches for easier separation:
+  * master -> stable
+  * dev -> development
+  * readme-changelog -> documentation
+  * feature -> feature branches 
+
+### Plans
+
+* Upcoming feature plans are now just the sub-branches on the features/ branch.
+* Standardising and improving demos and documentation
+---
+
 ## [1.4.0] - 2026-03-24
 
 ### Added
@@ -30,6 +174,8 @@
 ### Plans
 * Multithreading support!
 
+---
+
 ## [1.3.2] - 2026-03-24
 
 ### Added
@@ -39,13 +185,17 @@
 ### Improved
 * README examples
 
+---
+
 ## [1.3.1] - 2026-03-24
 
 ### Added
 * Comprehensive README overhaul with clearer structure and examples
 
-### Dev / Tooling
+### Dev
 * Improved release pipeline with automated versioning and GitHub releases
+
+---
 
 ## [1.3.0] - 2026-03-24
 
@@ -103,6 +253,8 @@
     * Inherited logging behavior
     * Human-readable mutations
     * Output cleanliness
+
+---
 
 ## [1.2.0] - 2026-03-23
 
