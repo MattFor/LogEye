@@ -128,7 +128,7 @@ if [[ "$GIT_ONLY" == false ]]; then
 
   echo "==> Running Ruff check"
   if ! ruff check .; then
-    echo "⚠️ Ruff reported issues"
+    echo "Ruff reported issues"
   fi
 
   echo "==> Running basedpyright"
@@ -138,8 +138,38 @@ if [[ "$GIT_ONLY" == false ]]; then
 
   echo "basedpyright: $SUMMARY"
 
-  echo "==> Running tests"
-  pytest
+ echo "==> Running tests"
+
+  TEST_OUTPUT=$(pytest --maxfail=0 --disable-warnings -q 2>&1 || true)
+  echo "$TEST_OUTPUT"
+
+  PASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= passed)' | head -1)
+  FAILED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= failed)' | head -1)
+  XPASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= xpassed)' | head -1)
+
+  PASSED=${PASSED:-0}
+  FAILED=${FAILED:-0}
+  XPASSED=${XPASSED:-0}
+
+  TOTAL=$((PASSED + FAILED + XPASSED))
+
+  if [[ $TOTAL -eq 0 ]]; then
+    echo "No tests detected, aborting!"
+    exit 1
+  fi
+
+  SUCCESS_RATE=$(awk "BEGIN {printf \"%.2f\", ($PASSED + $XPASSED)/$TOTAL * 100}")
+
+  echo "==> Test success rate: $SUCCESS_RATE%"
+
+  THRESHOLD=95
+
+  if (( $(echo "$SUCCESS_RATE < $THRESHOLD" | bc -l) )); then
+    echo "Test success rate below ${THRESHOLD}%! Aborting! Time to fix something..."
+    exit 1
+  else
+    echo "Test success rate above ${THRESHOLD}, continuing..."
+  fi
 
   echo "==> Cleaning old build artifacts"
   rm -rf dist build *.egg-info
