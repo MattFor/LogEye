@@ -1,3 +1,5 @@
+import os
+
 from logeye import log, set_path_mode
 from logeye.config import (
 	toggle_logs,
@@ -33,7 +35,7 @@ def test_path_modes(capsys):
 	log("test")
 
 	out = capsys.readouterr().out
-	assert "/" in out
+	assert "\\" if os.name == "nt" else "/" in out
 
 
 def test_decorator_only_blocks_normal_logs(capsys):
