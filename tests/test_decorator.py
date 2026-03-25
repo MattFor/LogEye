@@ -120,7 +120,9 @@ def test_recursive_with_wrapper(capsys):
 	assert "fib" in out
 
 
-@pytest.mark.xfail(reason="C decorators like lru_cache are not traceable via sys.settrace - TODO")
+@pytest.mark.xfail(
+	reason="C decorators like lru_cache are not traceable via sys.settrace - TODO"
+)
 def test_lru_cache_not_traced(capsys):
 	@log(show_wrapper_locals=True)
 	@lru_cache(maxsize=None)

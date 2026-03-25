@@ -95,12 +95,12 @@ def _unwrap_value(value: object):
 
 
 def _emit_change(
-		name: str,
-		op: str,
-		state: object = None,
-		filename: str | None = None,
-		lineno: int | None = None,
-		**details: object,
+	name: str,
+	op: str,
+	state: object = None,
+	filename: str | None = None,
+	lineno: int | None = None,
+	**details: object,
 ):
 	"""
 	Emit a mutation event with a readable payload
@@ -121,19 +121,27 @@ def _emit_change(
 
 
 @overload
-def _wrap_value(value: Callable[P, T], name: str | None = None, seen: set[int] | None = None) -> Callable[P, T]: ...
+def _wrap_value(
+	value: Callable[P, T], name: str | None = None, seen: set[int] | None = None
+) -> Callable[P, T]: ...
 
 
 @overload
-def _wrap_value(value: list[T], name: str | None = ..., seen: set[int] | None = None) -> LoggedList[T]: ...
+def _wrap_value(
+	value: list[T], name: str | None = ..., seen: set[int] | None = None
+) -> LoggedList[T]: ...
 
 
 @overload
-def _wrap_value(value: Mapping[K, V], name: str | None = ..., seen: set[int] | None = None) -> LoggedDict[K, V]: ...
+def _wrap_value(
+	value: Mapping[K, V], name: str | None = ..., seen: set[int] | None = None
+) -> LoggedDict[K, V]: ...
 
 
 @overload
-def _wrap_value(value: set[T], name: str | None = ..., seen: set[int] | None = None) -> LoggedSet[T]: ...
+def _wrap_value(
+	value: set[T], name: str | None = ..., seen: set[int] | None = None
+) -> LoggedSet[T]: ...
 
 
 @overload
@@ -146,7 +154,9 @@ def _wrap_value(value: T, name: str | None = ..., seen: set[int] | None = None) 
 
 # TODO: Maybe use a memoization map for recursive calls so we can maintain the actual values?
 # TODO: Kind of hard to do but may be worth it later
-def _wrap_value(value: object, name: str | None = None, seen: set[int] | None = None) -> object:
+def _wrap_value(
+	value: object, name: str | None = None, seen: set[int] | None = None
+) -> object:
 	"""
 	Recursively wrap values so nested structures are tracked
 
@@ -212,7 +222,9 @@ class LoggedObject(_BaseLogged, Generic[T]):
 
 	_data: dict[str, object]
 
-	def __init__(self, initial: T = None, name: str = "set", _seen: set[int] | None = None) -> None:
+	def __init__(
+		self, initial: T = None, name: str = "set", _seen: set[int] | None = None
+	) -> None:
 		# Prevent recursive self-calls expanding into an infinite recursion chain
 		if _seen is None:
 			_seen = set()
@@ -395,7 +407,12 @@ class LoggedList(list[T], _BaseLogged, Generic[T]):
 	List wrapper that logs mutations like append, sort, pop, extend, etc
 	"""
 
-	def __init__(self, initial: Iterable[T] | None = None, name: str = "set", _seen: set[int] | None = None):
+	def __init__(
+		self,
+		initial: Iterable[T] | None = None,
+		name: str = "set",
+		_seen: set[int] | None = None,
+	):
 		# Prevent recursive self-calls expanding into an infinite recursion chain
 		if _seen is None:
 			_seen = set()
@@ -527,11 +544,11 @@ class LoggedDict(dict[K, V], _BaseLogged, Generic[K, V]):
 	"""
 
 	def __init__(
-			self,
-			initial: Mapping[K, V] | Iterable[tuple[K, V]] | None = None,
-			name: str = "set",
-			_seen: set[int] | None = None,
-			**kwargs: object,
+		self,
+		initial: Mapping[K, V] | Iterable[tuple[K, V]] | None = None,
+		name: str = "set",
+		_seen: set[int] | None = None,
+		**kwargs: object,
 	):
 		# Prevent recursive self-calls expanding into an infinite recursion chain
 		if _seen is None:
@@ -555,11 +572,7 @@ class LoggedDict(dict[K, V], _BaseLogged, Generic[K, V]):
 
 		super().__init__()
 		for k, v in items:
-			dict.__setitem__(
-				self,
-				k,
-				_wrap_value(v, name=f"{name}.{k}", seen=_seen)
-			)
+			dict.__setitem__(self, k, _wrap_value(v, name=f"{name}.{k}", seen=_seen))
 
 	def _emit(self, op: str, **details) -> None:
 		frame = _caller_frame()
@@ -669,7 +682,12 @@ class LoggedSet(set[T], _BaseLogged, Generic[T]):
 	Set wrapper that logs mutations like add, remove, update, clear, etc
 	"""
 
-	def __init__(self, initial: Iterable[T] | None = None, name: str = "set", _seen: set[int] | None = None) -> None:
+	def __init__(
+		self,
+		initial: Iterable[T] | None = None,
+		name: str = "set",
+		_seen: set[int] | None = None,
+	) -> None:
 		# Prevent recursive self-calls expanding into an infinite recursion chain
 		if _seen is None:
 			_seen = set()

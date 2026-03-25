@@ -53,7 +53,7 @@ def test_nested_unpacking(capsys):
 def test_reassignment_same_line(capsys):
 	# fmt: off
 	# @formatter:off
-	x = log("a"); x = log("b")  # noqa: E703
+	x = log("a"); x = log("b")  # noqa: E702, E703
 	# @formatter:on
 	# fmt: off
 
@@ -181,7 +181,7 @@ def test_log_bool(capsys):
 
 
 def test_log_large_number(capsys):
-	x = log(10 ** 10)
+	x = log(10**10)
 
 	out = capsys.readouterr().out
 	assert "10000000000" in out

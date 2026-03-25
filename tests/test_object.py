@@ -152,10 +152,7 @@ def test_self_reference(capsys):
 
 
 def test_large_nested_structure(capsys):
-	obj = log({
-		"a": {"b": {"c": [1, 2, {"d": 4}]}},
-		"x": [{"y": 10}, {"z": 20}]
-	})
+	obj = log({"a": {"b": {"c": [1, 2, {"d": 4}]}}, "x": [{"y": 10}, {"z": 20}]})
 
 	obj.a.b.c[2]["d"] = 999
 	obj.x[1].z = 777
