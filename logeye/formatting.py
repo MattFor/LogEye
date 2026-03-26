@@ -12,8 +12,22 @@ if TYPE_CHECKING:
 	from .core import Kind
 
 
+def _last_name(name: str) -> str:
+	return name.split(".")[-1]
+
+
 def _is_simple_value(value: object) -> bool:
 	return isinstance(value, (str, int, float, bool, type(None)))
+
+
+def _display_name(name: str) -> str:
+	parts = [p for p in name.split(".") if not p.startswith("test_")]
+
+	# Remove root like "obj"
+	if parts and parts[0] not in ("self",):
+		parts = parts[1:]
+
+	return ".".join(parts) if parts else name
 
 
 def _format_change_payload(
@@ -88,10 +102,10 @@ def _default_formatter(
 			val = value.get("value")
 			state = value.get("state")
 
-			short_name = name.split(".")[-1]
+			short_name = _last_name(name)
 
 			if op == "append":
-				return f"{prefix}Added {val} to the end of {short_name} -> {state}"
+				return f"{prefix}Added {val} to the end of {short_name}"
 
 			if op == "extend":
 				if not val:
@@ -108,23 +122,21 @@ def _default_formatter(
 			return f"{prefix}{short_name} changed -> {state}"
 
 		if kind == "set":
-			parts = name.split(".")
+			if isinstance(value, dict) and value.get("type") == "function":
+				short_name = name if value.get("type") == "function" else _display_name(name)
+				defaults = value.get("defaults", {})
 
-			if len(parts) > 1:
-				parts = parts[1:]
+				if defaults:
+					args = ", ".join(f"{k}={v!r}" for k, v in defaults.items())
+					return f"{prefix}Defined {short_name}({args})"
 
-			short_name = ".".join(parts[-2:]) if len(parts) >= 2 else parts[0]
+				return f"{prefix}Defined {short_name}()"
 
+			short_name = _display_name(name)
 			return f"{prefix}{short_name} = {value!r}"
 
 		if kind == "call":
-			parts = name.split(".")
-
-			# Drop module part if present (first element)
-			if len(parts) > 1:
-				parts = parts[1:]
-
-			func_name = ".".join(parts[-2:]) if len(parts) >= 2 else parts[0]
+			func_name = _display_name(name)
 
 			if isinstance(value, dict):
 				args = value.get("args", ())
@@ -149,7 +161,11 @@ def _default_formatter(
 				call_signature = value.get("call_signature")
 				return_value = value.get("value")
 				if call_signature:
-					return f"{prefix}{call_signature} returned {return_value!r}"
+					raw_name = call_signature.split("(")[0]
+					func_name = _display_name(raw_name)
+					args_part = call_signature[len(raw_name):]
+
+					return f"{prefix}{func_name}{args_part} returned {return_value!r}"
 
 			return f"{prefix}Returned {value!r}"
 

@@ -405,10 +405,11 @@ def _log_function(
 	func_path = getattr(
 		target_func, "__qualname__", getattr(func, "__qualname__", "")
 	).replace(".<locals>.", ".")
-	allowed_codes = {target_code} if target_code is not None else set()
 
 	if show_wrapper_locals:
-		allowed_codes |= _collect_code_objects(func)
+		allowed_codes = _collect_code_objects(func)
+	else:
+		allowed_codes = {target_code} if target_code is not None else set()
 
 	call_counter = 0
 
@@ -494,19 +495,17 @@ def _log_function(
 			)
 
 		last_values = {}
+		active_names: dict[FrameType, str] = {}
 
 		try:
 			def tracer(frame: FrameType, event: str, arg: object):
 				code = frame.f_code
+				filename = code.co_filename
 
-				parent = frame.f_back
-
-				if not (
-						code in allowed_codes or (parent and parent.f_code in allowed_codes)
-				):
+				# For safety
+				if __name__.split(".")[0] in filename:
 					return tracer
 
-				filename = code.co_filename
 				lineno = frame.f_lineno
 
 				# Filter noise
@@ -520,33 +519,94 @@ def _log_function(
 					return tracer
 
 				if event == "call":
-					if frame.f_code in allowed_codes or (
-							frame.f_back and frame.f_back.f_code in allowed_codes
-					):
-						nested_name = code.co_name
+					parent = frame.f_back
 
-						# Skip itself so we don't get cases like outer.outer
-						if nested_name == target_func.__name__:
-							return tracer
+					if not parent:
+						return tracer
 
-						if nested_name.startswith("__"):
-							return tracer
+					if parent.f_code is not target_code:
+						return tracer
 
-						if nested_name in ("currentframe", "abspath", "join", "parse"):
-							return tracer
+					# if code is not target_code and parent.f_code is not target_code:
+					# 	return tracer
 
-						if _should_emit("call", nested_name):
-							_emit(
-								"call",
-								f"{call_name}.{nested_name}",
-								{"args": (), "kwargs": {}},
-								filename=filename,
-								lineno=lineno,
-								filepath=filepath,
-								show_time=show_time,
-								show_file=show_file,
-								show_lineno=show_lineno,
-							)
+					nested_name = code.co_name
+
+					# Skip itself so we don't get cases like outer.outer
+					if nested_name == target_func.__name__:
+						return tracer
+
+					if nested_name.startswith("__"):
+						return tracer
+
+					if nested_name in ("currentframe", "abspath", "join", "parse"):
+						return tracer
+
+					nested_full_name = f"{call_name}.{nested_name}"
+					active_names[frame] = nested_full_name
+
+					defaults = {}
+
+					argcount = code.co_argcount
+					varnames = code.co_varnames[:argcount]
+
+					# Defaults are stored in a function object, BUT approximation should be possible:
+					# last N args have defaults, but N is unknown here
+					# So need to use frame.f_code + frame.f_locals (they DO contain defaults at call time)
+					if frame.f_locals:
+						for name in varnames:
+							if name in frame.f_locals:
+								defaults[name] = frame.f_locals[name]
+
+					if _should_emit("call", nested_full_name):
+						_emit(
+							"call",
+							nested_full_name,
+							{"args": (), "kwargs": {}},
+							filename=filename,
+							lineno=lineno,
+							filepath=filepath,
+							show_time=show_time,
+							show_file=show_file,
+							show_lineno=show_lineno,
+						)
+
+					_emit(
+						"set",
+						nested_full_name,
+						{
+							"type": "function",
+							"path": nested_full_name,
+							"defaults": defaults,
+						},
+						filename=filename,
+						lineno=lineno,
+						filepath=filepath,
+						show_time=show_time,
+						show_file=show_file,
+						show_lineno=show_lineno,
+					)
+
+					# Emit default arguments as initial state
+					if hasattr(code, "co_varnames") and frame.f_locals:
+						for key, value in frame.f_locals.items():
+							if key in code.co_varnames:
+								name = f"{nested_full_name}.{key}"
+
+								if _should_emit("set", name):
+									_emit(
+										"set",
+										name,
+										value,
+										filename=filename,
+										lineno=lineno,
+										filepath=filepath,
+										show_time=show_time,
+										show_file=show_file,
+										show_lineno=show_lineno,
+									)
+
+									_mark_emitted(frame, key)
 
 					return tracer
 
@@ -555,11 +615,11 @@ def _log_function(
 				):
 					if event == "line":
 						current = dict(frame.f_locals)
-
 						for key, value in current.items():
 							if mode == "educational" and key in (
 									"_"
-							):  # , "i", "j", "k"):
+							) or key in {"args", "kwargs", "allowed_codes", "call_counter",
+							             "tracer"}:  # , "i", "j", "k"):
 								continue
 
 							old = last_values.get(key, object())
@@ -578,22 +638,11 @@ def _log_function(
 									frame.f_locals[key] = wrapped
 									value = wrapped
 
-							name = f"{call_name}.{key}"
+							frame_name = active_names.get(frame, call_name)
+							name = f"{frame_name}.{key}"
 							if old != value:
 								if callable(value):
-									display = _path(value)
-									if _should_emit("set", name):
-										_emit(
-											"set",
-											name,
-											f"<func {display}>",
-											filename=filename,
-											lineno=lineno,
-											filepath=filepath,
-											show_time=show_time,
-											show_file=show_file,
-											show_lineno=show_lineno,
-										)
+									continue
 								else:
 									if _should_emit("set", name):
 										_emit(
@@ -610,12 +659,14 @@ def _log_function(
 								last_values[key] = value
 					elif event == "return":
 						if _should_emit("return", call_name):
+							return_name = active_names.get(frame, call_name)
+
 							_emit(
 								"return",
-								call_name,
+								return_name,
 								{
 									"value": arg,
-									"call_signature": call_signature,
+									"call_signature": call_signature if return_name == call_name else f"{return_name}()",
 								},
 								filename=filename,
 								lineno=lineno,
@@ -624,6 +675,8 @@ def _log_function(
 								show_file=show_file,
 								show_lineno=show_lineno,
 							)
+
+							active_names.pop(frame, None)
 
 				return tracer
 
@@ -634,6 +687,7 @@ def _log_function(
 				return func(*args, **kwargs)
 			finally:
 				sys.settrace(old_trace)
+
 		finally:
 			config._g_log_mode = prev_mode
 			config._g_show_time = prev_time
@@ -908,8 +962,11 @@ def _dispatch_log(
 	if show_lineno is None:
 		show_lineno = config._g_show_lineno
 
-	if obj is _NO_VALUE:
+	if mode == "educational":
+		show_file = False
+		show_lineno = False
 
+	if obj is _NO_VALUE:
 		def decorator(target: T):
 			if inspect.isclass(target):
 				return _log_class(
