@@ -244,15 +244,20 @@ Output:
 ```text
 [0.000s] FACTORIAL
 [0.000s] Calling factorial(5)
-[0.000s] Calling factorial(4)
-[0.000s] Calling factorial(3)
-[0.000s] Calling factorial(2)
-[0.000s] Calling factorial(1)
-[0.000s] Returned 1
-[0.000s] Returned 2
-[0.000s] Returned 6
-[0.000s] Returned 24
-[0.000s] Returned 120
+[0.000s] n = 5
+[0.000s] Calling factorial#2(4)
+[0.000s] n = 4
+[0.000s] Calling factorial#3(3)
+[0.000s] n = 3
+[0.000s] Calling factorial#4(2)
+[0.000s] n = 2
+[0.000s] Calling factorial#5(1)
+[0.001s] n = 1
+[0.001s] factorial#5(1) returned 1
+[0.001s] factorial#4(2) returned 2
+[0.001s] factorial#3(3) returned 6
+[0.001s] factorial#2(4) returned 24
+[0.001s] factorial(5) returned 120
 ```
 
 It’s especially useful for:
