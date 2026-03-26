@@ -51,7 +51,11 @@ def _resolve_filepath(file: str | None = None, filepath: str | None = None) -> s
 #  CLASS LOGGING
 # ===============
 
-
+# FIXME: CRITICAL - METHOD CALLS ARE NOT TRACKED FOR CLASSES
+# Currently, @log only tracks attribute changes
+# Methods like `obj.method()` are NOT intercepted or logged
+# We need to wrap or proxy instance methods so calls + returns are traced
+# This is a major missing feature and should be implemented asap on features/class-method-logging
 def _log_class(
 	cls: type,
 	*,

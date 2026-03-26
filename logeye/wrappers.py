@@ -19,10 +19,11 @@ class _BaseLogged:
 	_log_name: str
 
 
+P = ParamSpec("P")
+
 T = TypeVar("T")
 K = TypeVar("K")
 V = TypeVar("V")
-P = ParamSpec("P")
 L = TypeVar("L", bound=_BaseLogged)
 
 
@@ -95,12 +96,12 @@ def _unwrap_value(value: object):
 
 
 def _emit_change(
-	name: str,
-	op: str,
-	state: object = None,
-	filename: str | None = None,
-	lineno: int | None = None,
-	**details: object,
+		name: str,
+		op: str,
+		state: object = None,
+		filename: str | None = None,
+		lineno: int | None = None,
+		**details: object,
 ):
 	"""
 	Emit a mutation event with a readable payload
@@ -122,25 +123,25 @@ def _emit_change(
 
 @overload
 def _wrap_value(
-	value: Callable[P, T], name: str | None = None, seen: set[int] | None = None
+		value: Callable[P, T], name: str | None = None, seen: set[int] | None = None
 ) -> Callable[P, T]: ...
 
 
 @overload
 def _wrap_value(
-	value: list[T], name: str | None = ..., seen: set[int] | None = None
+		value: list[T], name: str | None = ..., seen: set[int] | None = None
 ) -> LoggedList[T]: ...
 
 
 @overload
 def _wrap_value(
-	value: Mapping[K, V], name: str | None = ..., seen: set[int] | None = None
+		value: Mapping[K, V], name: str | None = ..., seen: set[int] | None = None
 ) -> LoggedDict[K, V]: ...
 
 
 @overload
 def _wrap_value(
-	value: set[T], name: str | None = ..., seen: set[int] | None = None
+		value: set[T], name: str | None = ..., seen: set[int] | None = None
 ) -> LoggedSet[T]: ...
 
 
@@ -155,7 +156,7 @@ def _wrap_value(value: T, name: str | None = ..., seen: set[int] | None = None) 
 # TODO: Maybe use a memoization map for recursive calls so we can maintain the actual values?
 # TODO: Kind of hard to do but may be worth it later
 def _wrap_value(
-	value: object, name: str | None = None, seen: set[int] | None = None
+		value: object, name: str | None = None, seen: set[int] | None = None
 ) -> object:
 	"""
 	Recursively wrap values so nested structures are tracked
@@ -223,7 +224,7 @@ class LoggedObject(_BaseLogged, Generic[T]):
 	_data: dict[str, object]
 
 	def __init__(
-		self, initial: T = None, name: str = "set", _seen: set[int] | None = None
+			self, initial: T = None, name: str = "set", _seen: set[int] | None = None
 	) -> None:
 		# Prevent recursive self-calls expanding into an infinite recursion chain
 		if _seen is None:
@@ -408,10 +409,10 @@ class LoggedList(list[T], _BaseLogged, Generic[T]):
 	"""
 
 	def __init__(
-		self,
-		initial: Iterable[T] | None = None,
-		name: str = "set",
-		_seen: set[int] | None = None,
+			self,
+			initial: Iterable[T] | None = None,
+			name: str = "set",
+			_seen: set[int] | None = None,
 	):
 		# Prevent recursive self-calls expanding into an infinite recursion chain
 		if _seen is None:
@@ -544,11 +545,11 @@ class LoggedDict(dict[K, V], _BaseLogged, Generic[K, V]):
 	"""
 
 	def __init__(
-		self,
-		initial: Mapping[K, V] | Iterable[tuple[K, V]] | None = None,
-		name: str = "set",
-		_seen: set[int] | None = None,
-		**kwargs: object,
+			self,
+			initial: Mapping[K, V] | Iterable[tuple[K, V]] | None = None,
+			name: str = "set",
+			_seen: set[int] | None = None,
+			**kwargs: object,
 	):
 		# Prevent recursive self-calls expanding into an infinite recursion chain
 		if _seen is None:
@@ -683,10 +684,10 @@ class LoggedSet(set[T], _BaseLogged, Generic[T]):
 	"""
 
 	def __init__(
-		self,
-		initial: Iterable[T] | None = None,
-		name: str = "set",
-		_seen: set[int] | None = None,
+			self,
+			initial: Iterable[T] | None = None,
+			name: str = "set",
+			_seen: set[int] | None = None,
 	) -> None:
 		# Prevent recursive self-calls expanding into an infinite recursion chain
 		if _seen is None:
