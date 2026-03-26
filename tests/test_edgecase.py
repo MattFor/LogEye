@@ -182,7 +182,7 @@ def test_log_bool(capsys):
 
 
 def test_log_large_number(capsys):
-	x = log(10**10)
+	x = log(10 ** 10)
 
 	out = capsys.readouterr().out
 	assert "10000000000" in out
@@ -252,3 +252,38 @@ def test_log_in_comprehension(capsys):
 	assert "0" in out
 	assert "1" in out
 	assert "2" in out
+
+
+def test_no_wrapper_internal_leak(capsys):
+	@log(show_wrapper_locals=True)
+	def f(x):
+		return x + 1
+
+	f(1)
+
+	out = capsys.readouterr().out
+
+	# If internals are leaking, it must be terrible
+	forbidden = [
+		"args",
+		"kwargs",
+		"call_counter",
+		"allowed_codes",
+		"target_func",
+		"prev_mode",
+		"prev_time",
+		"prev_file",
+		"prev_lineno",
+		"call_frame",
+		"call_filename",
+		"call_lineno",
+		"last_values",
+		"tracer",
+		"old_trace",
+		"_should_emit",
+	]
+
+	for name in forbidden:
+		assert f".{name} =" not in out, f"Leaked internal variable: {name}"
+
+
