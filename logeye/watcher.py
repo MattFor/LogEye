@@ -5,9 +5,17 @@ from logeye.emmiter import _emit
 
 _NO_VALUE = object()
 
+_recently_emitted: set[tuple] = set()
+
 _g_watched_names: dict[object, set[str]] = {}
 _g_last_seen: dict[object, dict[str, object]] = {}
 _g_trace_installed = False
+
+
+def _mark_emitted(frame: FrameType, name: str) -> None:
+	if not name:
+		return
+	_recently_emitted.add((frame.f_code, name))
 
 
 def _mark_watched(frame: FrameType, name: str) -> None:
@@ -41,6 +49,13 @@ def _install_global_trace(frame: FrameType | None = None) -> None:
 
 		for name in watched:
 			if name not in current:
+				continue
+
+			# Skip if manually emitted
+			key = (frame.f_code, name)
+			if key in _recently_emitted:
+				_recently_emitted.remove(key)
+				last[name] = current[name]  # Sync state
 				continue
 
 			value = current[name]
