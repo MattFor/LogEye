@@ -1,10 +1,7 @@
 import os
 
-from logeye import log, set_path_mode
-from logeye.config import (
-	toggle_logs,
-	toggle_decorator_log_only,
-)
+from helpers import capture, assert_has, assert_not_has
+from logeye import log, set_path_mode, toggle_logs, toggle_decorator_log_only
 
 
 def test_logoff(capsys):
@@ -13,7 +10,7 @@ def test_logoff(capsys):
 
 	log("hidden")
 
-	out = capsys.readouterr().out
+	out, ls = capture(capsys)
 	assert out == ""
 
 
@@ -23,8 +20,8 @@ def test_logon(capsys):
 
 	log("visible")
 
-	out = capsys.readouterr().out
-	assert "visible" in out
+	out, ls = capture(capsys)
+	assert_has(out, "visible")
 
 
 def test_path_modes(capsys):
@@ -34,8 +31,12 @@ def test_path_modes(capsys):
 	set_path_mode("absolute")
 	log("test")
 
-	out = capsys.readouterr().out
-	assert "\\" if os.name == "nt" else "/" in out
+	out, ls = capture(capsys)
+
+	if os.name == "nt":
+		assert_has(out, "\\")
+	else:
+		assert_has(out, "/")
 
 
 def test_decorator_only_blocks_normal_logs(capsys):
@@ -44,7 +45,7 @@ def test_decorator_only_blocks_normal_logs(capsys):
 
 	log("should not appear")
 
-	out = capsys.readouterr().out
+	out, ls = capture(capsys)
 	assert out == ""
 
 
@@ -59,8 +60,8 @@ def test_decorator_only_allows_decorated(capsys):
 
 	foo()
 
-	out = capsys.readouterr().out
-	assert "foo" in out
+	out, ls = capture(capsys)
+	assert_has(out, "foo")
 
 
 def test_level_call_only(capsys):
@@ -74,11 +75,11 @@ def test_level_call_only(capsys):
 
 	foo()
 
-	out = capsys.readouterr().out
+	out, ls = capture(capsys)
 
-	assert "(call)" in out
-	assert "(return)" in out
-	assert "(set)" not in out  # no variable logs
+	assert_has(out, "(call)")
+	assert_has(out, "(return)")
+	assert_not_has(out, "(set)")
 
 
 def test_level_state(capsys):
@@ -92,10 +93,10 @@ def test_level_state(capsys):
 
 	foo()
 
-	out = capsys.readouterr().out
+	out, ls = capture(capsys)
 
-	assert "(set)" in out
-	assert "(call)" not in out
+	assert_has(out, "(set)")
+	assert_not_has(out, "(call)")
 
 
 def test_filter_variables(capsys):
@@ -110,7 +111,7 @@ def test_filter_variables(capsys):
 
 	foo()
 
-	out = capsys.readouterr().out
+	out, ls = capture(capsys)
 
-	assert "foo.x" in out
-	assert "foo.y" not in out
+	assert_has(out, "foo.x")
+	assert_not_has(out, "foo.y")

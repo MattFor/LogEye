@@ -1,54 +1,78 @@
 import pytest
-from logeye import log
+
+from helpers import (
+	count,
+	capture,
+	assert_has,
+	assert_values,
+	assert_has_set,
+	assert_not_has,
+	assert_line_order,
+	assert_line_count,
+	assert_line_contains,
+	assert_no_internal_leaks,
+)
+from logeye import log, set_path_mode
 
 
 def test_inline_expression(capsys):
 	x = "a" + log("b")
 
-	out = capsys.readouterr().out
+	raw, ls = capture(capsys)
 
-	assert "b" in out
 	assert x == "ab"
+	assert_has(raw, "b")
+	assert_not_has(raw, "ab")
+	assert_line_count(ls, 1)
 
 
 def test_nested_inline_expression(capsys):
 	x = log("a") + log("b") + log("c")
 
-	out = capsys.readouterr().out
+	raw, ls = capture(capsys)
 
-	assert "a" in out
-	assert "b" in out
-	assert "c" in out
 	assert x == "abc"
+	assert_values(raw, "a", "b", "c")
+	assert_line_count(ls, 3)
+	assert_line_contains(ls, "a")
+	assert_line_contains(ls, "b")
+	assert_line_contains(ls, "c")
 
 
 def test_expression_order(capsys):
 	x = log("a") + "b"
 
-	out = capsys.readouterr().out
-	assert "a" in out
+	raw, ls = capture(capsys)
+
 	assert x == "ab"
+	assert_has(raw, "a")
+	assert_line_count(ls, 1)
+	assert_line_contains(ls, "a")
 
 
 def test_tuple_unpacking(capsys):
 	a, b = log("x"), log("y")
 
-	out = capsys.readouterr().out
+	raw, ls = capture(capsys)
 
-	assert "(set) a =" in out
-	assert "(set) b =" in out
+	assert_line_count(ls, 2)
+	assert_has_set(raw, "a", "x")
+	assert_has_set(raw, "b", "y")
+	assert_line_order(ls, "a = 'x'", "b = 'y'")
 
 
-# TODO: Multiple tuple nested unpacking support - basically gotta make a mini-parser just for them
 @pytest.mark.xfail(reason="Nested unpacking not fully supported yet", strict=False)
 def test_nested_unpacking(capsys):
 	(a, (b, c)) = log("x"), (log("y"), log("z"))
 
-	out = capsys.readouterr().out
+	raw, ls = capture(capsys)
 
-	assert "(set) a =" in out
-	assert "(set) b =" in out
-	assert "(set) c =" in out
+	assert_line_contains(ls, "a")
+	assert_line_contains(ls, "b")
+	assert_line_contains(ls, "c")
+	assert_has(raw, "x")
+	assert_has(raw, "y")
+	assert_has(raw, "z")
 
 
 def test_reassignment_same_line(capsys):
@@ -56,21 +80,22 @@ def test_reassignment_same_line(capsys):
 	# @formatter:off
 	x = log("a"); x = log("b")  # noqa: E702, E703
 	# @formatter:on
-	# fmt: off
+	# fmt: on
 
-	out = capsys.readouterr().out
-	assert "a" in out
-	assert "b" in out
+	raw, ls = capture(capsys)
+
+	assert_has(raw, "a")
+	assert_has(raw, "b")
+	assert_line_count(ls, 2)
+	assert_line_order(ls, "x = 'a'", "x = 'b'")
 
 
 def test_inline_expression_error():
 	with pytest.raises(TypeError):
-		x = 1 + log("a")
+		1 + log("a")
 
 
 def test_invalid_path_mode():
-	from logeye import set_path_mode
-
 	with pytest.raises(ValueError):
 		set_path_mode("invalid")
 
@@ -79,8 +104,11 @@ def test_if_branch_logging(capsys):
 	if True:
 		x = log("yes")
 
-	out = capsys.readouterr().out
-	assert "yes" in out
+	raw, ls = capture(capsys)
+
+	assert_has(raw, "yes")
+	assert_line_count(ls, 1)
+	assert_has_set(raw, "x", "yes")
 
 
 def test_if_else_branch(capsys):
@@ -89,26 +117,33 @@ def test_if_else_branch(capsys):
 	else:
 		log("yes")
 
-	out = capsys.readouterr().out
-	assert "yes" in out
-	assert "no" not in out
+	raw, ls = capture(capsys)
+
+	assert_has(raw, "yes")
+	assert_not_has(raw, "no")
+	assert_line_count(ls, 1)
 
 
 def test_loop_logging(capsys):
 	for _ in range(3):
 		log("loop")
 
-	out = capsys.readouterr().out
-	assert out.count("loop") == 3
+	raw, ls = capture(capsys)
+
+	assert count(ls, "loop") == 3
+	assert_line_count(ls, 3)
 
 
 def test_loop_variable_assignment(capsys):
 	for i in range(2):
 		x = log(i)
 
-	out = capsys.readouterr().out
-	assert "0" in out
-	assert "1" in out
+	raw, ls = capture(capsys)
+
+	assert_has(raw, "0")
+	assert_has(raw, "1")
+	assert_line_count(ls, 2)
+	assert_line_order(ls, "0", "1")
 
 
 def test_inside_function(capsys):
@@ -117,8 +152,11 @@ def test_inside_function(capsys):
 
 	f()
 
-	out = capsys.readouterr().out
-	assert "inner" in out
+	raw, ls = capture(capsys)
+
+	assert_has(raw, "inner")
+	assert_line_count(ls, 1)
+	assert_has_set(raw, "x", "inner")
 
 
 def test_nested_functions(capsys):
@@ -130,16 +168,20 @@ def test_nested_functions(capsys):
 
 	outer()
 
-	out = capsys.readouterr().out
-	assert "deep" in out
+	raw, ls = capture(capsys)
+
+	assert_has(raw, "deep")
+	assert_line_count(ls, 1)
 
 
 def test_lambda_usage(capsys):
 	f = lambda: log("lambda")
 	f()
 
-	out = capsys.readouterr().out
-	assert "lambda" in out
+	raw, ls = capture(capsys)
+
+	assert_has(raw, "lambda")
+	assert_line_count(ls, 1)
 
 
 def test_multiple_calls_same_var(capsys):
@@ -147,10 +189,14 @@ def test_multiple_calls_same_var(capsys):
 	x = log("b")
 	x = log("c")
 
-	out = capsys.readouterr().out
-	assert "a" in out
-	assert "b" in out
-	assert "c" in out
+	raw, ls = capture(capsys)
+
+	assert_has(raw, "a")
+	assert_has(raw, "b")
+	assert_has(raw, "c")
+	assert_line_count(ls, 3)
+	assert_line_order(ls, "a", "b")
+	assert_line_order(ls, "b", "c")
 
 
 def test_reuse_variable_name(capsys):
@@ -162,96 +208,127 @@ def test_reuse_variable_name(capsys):
 
 	f()
 
-	out = capsys.readouterr().out
-	assert "a" in out
-	assert "b" in out
+	raw, ls = capture(capsys)
+
+	assert_has(raw, "a")
+	assert_has(raw, "b")
+	assert_line_count(ls, 2)
 
 
 def test_log_none(capsys):
 	x = log(None)
 
-	out = capsys.readouterr().out
-	assert "None" in out
+	raw, ls = capture(capsys)
+
+	assert x is None
+	assert_has(raw, "None")
+	assert_line_count(ls, 1)
 
 
 def test_log_bool(capsys):
 	x = log(True)
 
-	out = capsys.readouterr().out
-	assert "True" in out
+	raw, ls = capture(capsys)
+
+	assert x is True
+	assert_has(raw, "True")
+	assert_line_count(ls, 1)
 
 
 def test_log_large_number(capsys):
-	x = log(10 ** 10)
+	x = log(10**10)
 
-	out = capsys.readouterr().out
-	assert "10000000000" in out
+	raw, ls = capture(capsys)
+
+	assert x == 10**10
+	assert_has(raw, "10000000000")
+	assert_line_count(ls, 1)
 
 
 def test_empty_string(capsys):
 	log("")
 
-	out = capsys.readouterr().out
-	assert out.strip() != ""  # Still logs something
+	raw, ls = capture(capsys)
+
+	assert raw.strip() != ""
+	assert_line_count(ls, 1)
 
 
 def test_whitespace_string(capsys):
 	log("   ")
 
-	out = capsys.readouterr().out
-	assert "   " in out
+	raw, ls = capture(capsys)
+
+	assert_has(raw, "   ")
+	assert_line_count(ls, 1)
 
 
 def test_special_characters(capsys):
 	log("!@#$%^&*()")
 
-	out = capsys.readouterr().out
-	assert "!@#$%^&*()" in out
+	raw, ls = capture(capsys)
+
+	assert_has(raw, "!@#$%^&*()")
+	assert_line_count(ls, 1)
 
 
 def test_no_assignment_context(capsys):
 	log("standalone")
 
-	out = capsys.readouterr().out
-	assert "standalone" in out
+	raw, ls = capture(capsys)
+
+	assert_has(raw, "standalone")
+	assert_line_count(ls, 1)
 
 
 def test_shadow_builtin_name(capsys):
 	str = log("test")  # shadowing built-in
 
-	out = capsys.readouterr().out
-	assert "test" in out
+	raw, ls = capture(capsys)
+
+	assert str == "test"
+	assert_has(raw, "test")
+	assert_line_count(ls, 1)
 
 
 def test_chained_calls(capsys):
 	x = log(log("inner"))
 
-	out = capsys.readouterr().out
-	assert "inner" in out
+	raw, ls = capture(capsys)
+
+	assert x == "inner"
+	assert_has(raw, "inner")
+	assert_line_count(ls, 2)
 
 
 def test_log_in_list(capsys):
 	arr = [log("a"), log("b")]
 
-	out = capsys.readouterr().out
-	assert "a" in out
-	assert "b" in out
+	raw, ls = capture(capsys)
+
+	assert arr == ["a", "b"]
+	assert_values(raw, "a", "b")
+	assert_line_count(ls, 2)
 
 
 def test_log_in_dict(capsys):
 	d = {"a": log("x")}
 
-	out = capsys.readouterr().out
-	assert "x" in out
+	raw, ls = capture(capsys)
+
+	assert d == {"a": "x"}
+	assert_has(raw, "x")
+	assert_line_count(ls, 1)
 
 
 def test_log_in_comprehension(capsys):
 	arr = [log(i) for i in range(3)]
 
-	out = capsys.readouterr().out
-	assert "0" in out
-	assert "1" in out
-	assert "2" in out
+	raw, ls = capture(capsys)
+
+	assert arr == [0, 1, 2]
+	assert_values(raw, 0, 1, 2)
+	assert_line_count(ls, 3)
 
 
 def test_no_wrapper_internal_leak(capsys):
@@ -261,29 +338,14 @@ def test_no_wrapper_internal_leak(capsys):
 
 	f(1)
 
-	out = capsys.readouterr().out
+	raw, ls = capture(capsys)
 
-	# If internals are leaking, it must be terrible
-	forbidden = [
-		"args",
-		"kwargs",
-		"call_counter",
-		"allowed_codes",
-		"target_func",
-		"prev_mode",
-		"prev_time",
-		"prev_file",
-		"prev_lineno",
-		"call_frame",
-		"call_filename",
-		"call_lineno",
-		"last_values",
-		"tracer",
-		"old_trace",
-		"_should_emit",
-	]
+	assert_has(raw, "(call)")
+	assert_has(raw, "(return)")
+	assert_has_set(raw, "x", 1)
 
-	for name in forbidden:
-		assert f".{name} =" not in out, f"Leaked internal variable: {name}"
+	assert_no_internal_leaks(raw)
 
-
+	assert_line_count(ls, 3)
+	assert_line_order(ls, "(call)", "x = 1")
+	assert_line_order(ls, "x = 1", "(return)")

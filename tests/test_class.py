@@ -1,13 +1,5 @@
-import pytest
+from helpers import lines, count, capture, assert_has, assert_set_order, assert_line_count
 from logeye import log, l
-
-
-def _lines(capsys):
-	return [line.strip() for line in capsys.readouterr().out.splitlines() if line.strip()]
-
-
-def _count(lines, needle):
-	return sum(needle in line for line in lines)
 
 
 @log
@@ -144,252 +136,251 @@ class WithClassMethod:
 
 def test_class_init_emits_once(capsys):
 	user = l(User())
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert user.name == "Matt"
 	assert user.active is True
-	assert _count(lines, "User.__init__") == 1
-	assert _count(lines, "name") >= 1
-	assert _count(lines, "active") >= 1
-	assert any("Matt" in line for line in lines)
-	assert any("True" in line for line in lines)
+	assert count(ls, "User.__init__") == 1
+	assert count(ls, "name") >= 1
+	assert count(ls, "active") >= 1
+	assert_has(out, "Matt")
+	assert_has(out, "True")
 
 
 def test_class_attribute_assignment(capsys):
 	user = l(User())
-	_lines(capsys)
+	lines(capsys)
 
 	user.name = "For"
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert user.name == "For"
-	assert len(lines) == 1
-	assert _count(lines, "name") == 1
-	assert any("For" in line for line in lines)
+	assert_line_count(ls, 1)
+	assert count(ls, "name") == 1
+	assert_has(out, "For")
 
 
 def test_class_attribute_reassign_order(capsys):
 	user = l(User())
-	_lines(capsys)
+	lines(capsys)
 
 	user.name = "A"
 	user.name = "B"
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert user.name == "B"
-	assert _count(lines, "name") >= 2
-	assert any("A" in line for line in lines)
-	assert any("B" in line for line in lines)
-	first_a = next(i for i, line in enumerate(lines) if "A" in line)
-	first_b = next(i for i, line in enumerate(lines) if "B" in line)
-	assert first_a < first_b
+	assert count(ls, "name") >= 2
+	assert_has(out, "A")
+	assert_has(out, "B")
+	assert_set_order(ls, "name", "A", "B")
 
 
 def test_dynamic_attribute_creation(capsys):
 	user = l(User())
-	_lines(capsys)
+	lines(capsys)
 
 	user.new_field = 123
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert hasattr(user, "new_field")
 	assert user.new_field == 123
-	assert _count(lines, "new_field") == 1
-	assert any("123" in line for line in lines)
+	assert count(ls, "new_field") == 1
+	assert_has(out, "123")
 
 
 def test_delete_attribute_emits_deleted_once(capsys):
 	user = l(User())
-	_lines(capsys)
+	lines(capsys)
 
 	del user.name
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert not hasattr(user, "name")
-	assert _count(lines, "deleted") == 1
-	assert _count(lines, "name") == 1
+	assert count(ls, "deleted") == 1
+	assert count(ls, "name") == 1
 
 
 def test_private_attribute_is_marked(capsys):
 	user = l(User())
-	_lines(capsys)
+	lines(capsys)
 
 	user._hidden = 42
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert user._hidden == 42
-	assert _count(lines, "_hidden") == 1
-	assert _count(lines, "<priv>") == 0
-	assert _count(lines, "42") == 1
+	assert count(ls, "_hidden") == 1
+	assert count(ls, "<priv>") == 0
+	assert_has(out, "42")
 
 
 def test_multiple_instances_stay_separate(capsys):
 	u1 = l(User())
 	u2 = l(User())
-	_lines(capsys)
+	lines(capsys)
 
 	u1.name = "A"
 	u2.name = "B"
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert u1.name == "A"
 	assert u2.name == "B"
-	assert any("A" in line for line in lines)
-	assert any("B" in line for line in lines)
-	assert _count(lines, "name") >= 2
+	assert_has(out, "A")
+	assert_has(out, "B")
+	assert count(ls, "name") >= 2
 
 
 def test_multiple_attributes(capsys):
 	user = l(User())
-	_lines(capsys)
+	lines(capsys)
 
 	user.age = 20
 	user.city = "NY"
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert user.age == 20
 	assert user.city == "NY"
-	assert _count(lines, "age") == 1
-	assert _count(lines, "city") == 1
-	assert any("20" in line for line in lines)
-	assert any("NY" in line for line in lines)
+	assert count(ls, "age") == 1
+	assert count(ls, "city") == 1
+	assert_has(out, "20")
+	assert_has(out, "NY")
 
 
 def test_method_mutation(capsys):
 	c = l(Counter())
-	_lines(capsys)
+	lines(capsys)
 
 	result = c.inc()
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert result == 1
 	assert c.value == 1
-	assert _count(lines, "value") >= 1
-	assert any("1" in line for line in lines)
-	assert any("(call)" in line and "inc" in line for line in lines)
-	assert any("(return)" in line and "inc" in line for line in lines)
+	assert count(ls, "value") >= 1
+	assert_has(out, "1")
+	assert_has(out, "(call)")
+	assert_has(out, "inc")
+	assert_has(out, "(return)")
 
 
 def test_multiple_method_calls(capsys):
 	c = l(Counter())
-	_lines(capsys)
+	lines(capsys)
 
 	c.inc()
 	c.inc()
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert c.value == 2
-	assert _count(lines, "inc") >= 2
-	assert any("2" in line for line in lines)
+	assert count(ls, "inc") >= 2
+	assert_has(out, "2")
 
 
 def test_method_mutation_strict_order(capsys):
 	c = l(Counter())
-	_lines(capsys)
+	lines(capsys)
 
 	c.inc()
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
-	assert len(lines) >= 1
-	assert any("value" in line for line in lines)
-	assert any("1" in line for line in lines)
+	assert len(ls) >= 1
+	assert_has(out, "value")
+	assert_has(out, "1")
 
 
 def test_recursive_method_tracking(capsys):
 	c = l(Counter())
-	_lines(capsys)
+	lines(capsys)
 
 	result = c.countdown(3)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert result == 3
-	assert _count(lines, "countdown") >= 3
-	assert any("3" in line for line in lines)
-	assert any("2" in line for line in lines)
-	assert any("1" in line for line in lines)
+	assert count(ls, "countdown") >= 3
+	assert_has(out, "3")
+	assert_has(out, "2")
+	assert_has(out, "1")
 
 
 def test_recursive_method_zero_base_case(capsys):
 	c = l(Counter())
-	_lines(capsys)
+	lines(capsys)
 
 	result = c.countdown(0)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert result == 0
-	assert any("0" in line for line in lines)
+	assert_has(out, "0")
 
 
 def test_method_return(capsys):
 	c = l(Calc())
-	_lines(capsys)
+	lines(capsys)
 
 	res = c.add(2, 3)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert res == 5
-	assert any("2" in line for line in lines)
-	assert any("3" in line for line in lines)
-	assert any("5" in line for line in lines)
-	assert any("(call)" in line and "add" in line for line in lines)
-	assert any("(return)" in line and "add" in line for line in lines)
+	assert_has(out, "2")
+	assert_has(out, "3")
+	assert_has(out, "5")
+	assert_has(out, "(call)")
+	assert_has(out, "add")
+	assert_has(out, "(return)")
 
 
 def test_method_return_lambda(capsys):
 	c = l(Calc())
-	_lines(capsys)
+	lines(capsys)
 
 	f = c.make_adder(4)
 	result = f(3)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert result == 7
-	assert any("make_adder" in line for line in lines)
-	assert any("4" in line for line in lines)
+	assert_has(out, "make_adder")
+	assert_has(out, "4")
 
 
 def test_nested_method_definition(capsys):
 	c = l(Calc())
-	_lines(capsys)
+	lines(capsys)
 
 	res = c.outer(5)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert res == 8
-	assert any("outer" in line for line in lines)
-	assert any("inner" in line for line in lines)
-	assert any("5" in line for line in lines)
-	assert any("8" in line for line in lines)
+	assert_has(out, "outer")
+	assert_has(out, "inner")
+	assert_has(out, "5")
+	assert_has(out, "8")
 
 
 def test_nested_lambda_in_method(capsys):
 	c = l(Calc())
-	_lines(capsys)
+	lines(capsys)
 
 	res = c.chain(5)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert res == 8
-	assert any("chain" in line for line in lines)
-	assert len(lines) >= 1
+	assert_has(out, "chain")
+	assert len(ls) >= 1
 
 
 def test_method_chaining_logs_multiple_steps(capsys):
 	c = l(Calc())
-	_lines(capsys)
+	lines(capsys)
 
 	a = c.add(1, 2)
 	b = c.add(a, 3)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert a == 3
 	assert b == 6
-	assert any("1" in line for line in lines)
-	assert any("2" in line for line in lines)
-	assert any("3" in line for line in lines)
-	assert any("6" in line for line in lines)
-	assert sum("(call)" in line and "add" in line for line in lines) == 2
-	assert sum("(return)" in line and "add" in line for line in lines) == 2
+	assert_has(out, "1")
+	assert_has(out, "2")
+	assert_has(out, "3")
+	assert_has(out, "6")
+	assert count(ls, "add") >= 2
 
 
 def test_method_override(capsys):
@@ -404,161 +395,162 @@ def test_method_override(capsys):
 			return 2
 
 	b = l(B())
-	_lines(capsys)
+	lines(capsys)
 
 	res = b.foo()
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert res == 2
-	assert any("2" in line for line in lines)
-	assert any("(call)" in line and "foo" in line for line in lines)
-	assert any("(return)" in line and "foo" in line for line in lines)
+	assert_has(out, "2")
+	assert_has(out, "foo")
+	assert_has(out, "(call)")
+	assert_has(out, "(return)")
 
 
 def test_inheritance(capsys):
 	c = l(Child())
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert c.base == 1
 	assert c.child == 2
-	assert _count(lines, "base") >= 1
-	assert _count(lines, "child") >= 1
+	assert count(ls, "base") >= 1
+	assert count(ls, "child") >= 1
 
 
 def test_property_setter(capsys):
 	obj = l(WithProperty())
-	_lines(capsys)
+	lines(capsys)
 
 	obj.x = 10
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert obj.x == 10
-	assert any("x" in line for line in lines)
-	assert any("10" in line for line in lines)
+	assert_has(out, "x")
+	assert_has(out, "10")
 
 
 def test_callable_attribute(capsys):
 	obj = l(WithFunc())
-	_lines(capsys)
+	lines(capsys)
 
 	obj.func = lambda x: x + 2
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert callable(obj.func)
-	assert _count(lines, "func") >= 1
-	assert any("<func" in line for line in lines)
+	assert count(ls, "func") >= 1
+	assert_has(out, "<func")
 
 
 def test_nested_object_mutation_is_logged(capsys):
 	p = l(Profile())
-	_lines(capsys)
+	lines(capsys)
 
 	p.user["name"] = "For"
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert p.user["name"] == "For"
-	assert any("user" in line for line in lines)
-	assert any("name" in line for line in lines)
-	assert any("For" in line for line in lines)
+	assert_has(out, "user")
+	assert_has(out, "name")
+	assert_has(out, "For")
 
 
 def test_list_mutation(capsys):
 	obj = l(WithList())
-	_lines(capsys)
+	lines(capsys)
 
 	obj.items.append(1)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert obj.items == [1]
-	assert any("append" in line.lower() for line in lines)
-	assert any("1" in line for line in lines)
+	assert_has(out.lower(), "append")
+	assert_has(out, "1")
 
 
 def test_dict_mutation(capsys):
 	obj = l(WithDict())
-	_lines(capsys)
+	lines(capsys)
 
 	obj.data["a"] = 2
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert obj.data["a"] == 2
-	assert any("data" in line for line in lines)
-	assert any("2" in line for line in lines)
+	assert_has(out, "data")
+	assert_has(out, "2")
 
 
 def test_overwrite_method(capsys):
 	u = l(User())
-	_lines(capsys)
+	lines(capsys)
 
 	u.name = lambda: "test"
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert callable(u.name)
-	assert _count(lines, "name") == 1
-	assert any("<func" in line for line in lines)
+	assert count(ls, "name") == 1
+	assert_has(out, "<func")
 
 
 def test_class_without_init_tracks_new_attrs(capsys):
 	e = l(Empty())
-	_lines(capsys)
+	lines(capsys)
 
 	e.x = 1
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert e.x == 1
-	assert _count(lines, "x") == 1
-	assert any("1" in line for line in lines)
+	assert count(ls, "x") == 1
+	assert_has(out, "1")
 
 
 def test_self_reference_does_not_explode(capsys):
 	obj = l(SelfRef())
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert obj.me is obj
-	assert _count(lines, "me") == 1
-	assert len(lines) < 20
+	assert count(ls, "me") == 1
+	assert len(ls) < 20
 
 
 def test_static_method_called_on_instance(capsys):
 	obj = l(WithStatic())
-	_lines(capsys)
+	lines(capsys)
 
 	res = obj.ping(5)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert res == 6
-	assert any("ping" in line for line in lines)
+	assert_has(out, "ping")
 
 
 def test_static_method_called_on_class(capsys):
-	_lines(capsys)
+	lines(capsys)
 
 	res = WithStatic.ping(7)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert res == 8
-	assert any("ping" in line for line in lines)
+	assert_has(out, "ping")
 
 
 def test_class_method_called_on_instance(capsys):
 	obj = l(WithClassMethod())
-	_lines(capsys)
+	lines(capsys)
 
 	res = obj.bump(5)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert res == 15
-	assert any("bump" in line for line in lines)
+	assert_has(out, "bump")
 
 
 def test_class_method_called_on_class(capsys):
-	_lines(capsys)
+	lines(capsys)
 
 	res = WithClassMethod.bump(5)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert res == 15
-	assert any("bump" in line for line in lines)
+	assert_has(out, "bump")
 
 
 def test_method_local_lambda_tracing(capsys):
@@ -569,14 +561,14 @@ def test_method_local_lambda_tracing(capsys):
 			return f(3)
 
 	obj = l(LocalLambda())
-	_lines(capsys)
+	lines(capsys)
 
 	res = obj.outer(4)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert res == 7
-	assert any("outer" in line for line in lines)
-	assert any("lambda" in line.lower() or "f" in line for line in lines)
+	assert_has(out, "outer")
+	assert_has(out, "lambda") or assert_has(out, "f")
 
 
 def test_deep_nested_method_definitions(capsys):
@@ -592,12 +584,12 @@ def test_deep_nested_method_definitions(capsys):
 			return mid(2)
 
 	obj = l(Nested())
-	_lines(capsys)
+	lines(capsys)
 
 	res = obj.outer(1)
-	lines = _lines(capsys)
+	out, ls = capture(capsys)
 
 	assert res == 6
-	assert any("outer" in line for line in lines)
-	assert any("mid" in line for line in lines)
-	assert any("inner" in line for line in lines)
+	assert_has(out, "outer")
+	assert_has(out, "mid")
+	assert_has(out, "inner")

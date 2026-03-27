@@ -1,18 +1,5 @@
-import re
-import pytest
+from helpers import assert_has, assert_not_has, assert_no_internal_leaks
 from logeye import log, set_mode
-
-
-@pytest.fixture
-def out(capsys):
-	def _get():
-		raw = capsys.readouterr().out
-		return "\n".join(
-			re.sub(r'(?:\btest_[a-zA-Z0-9_]*\.)+', '', line)
-			for line in raw.splitlines()
-		)
-
-	return _get
 
 
 def test_call_formatting(out):
@@ -20,13 +7,21 @@ def test_call_formatting(out):
 	def foo(x):
 		return x
 
-	foo(5)
+	result = foo(5)
+	text = out()
 
-	out = out()
+	assert result == 5
+	assert_has(text, "Calling foo(5)")
+	assert_not_has(text, "(call)")
+	assert_not_has(text, "test_")
+	assert_no_internal_leaks(text)
 
-	assert "Calling foo(5)" in out
-	assert "(call)" not in out
-	assert "test_" not in out
+	ls = lines_from_text(text)
+
+	assert len(ls) == 3
+	assert "Calling foo(5)" in ls[0]
+	assert "Defined foo.x = 5" in ls[1]
+	assert "returned 5" in ls[2]
 
 
 def test_return_formatting(out):
@@ -34,12 +29,19 @@ def test_return_formatting(out):
 	def foo():
 		return 123
 
-	foo()
+	result = foo()
+	text = out()
 
-	out = out()
+	assert result == 123
+	assert_has(text, "foo() returned 123")
+	assert_not_has(text, "(return)")
+	assert_no_internal_leaks(text)
 
-	assert "foo() returned 123" in out
-	assert "(return)" not in out
+	ls = lines_from_text(text)
+
+	assert len(ls) == 2
+	assert "Calling foo()" in ls[0]
+	assert "returned 123" in ls[1]
 
 
 def test_args_and_kwargs(out):
@@ -47,11 +49,13 @@ def test_args_and_kwargs(out):
 	def foo(a, b=2):
 		return a + b
 
-	foo(1, b=3)
+	result = foo(1, b=3)
+	text = out()
 
-	out = out()
-
-	assert "Calling foo(1, b=3)" in out
+	assert result == 4
+	assert_has(text, "Calling foo(1, b=3)")
+	assert_not_has(text, "kwargs")
+	assert_no_internal_leaks(text)
 
 
 def test_no_kwargs_noise(out):
@@ -59,12 +63,13 @@ def test_no_kwargs_noise(out):
 	def foo(x):
 		return x
 
-	foo(10)
+	result = foo(10)
+	text = out()
 
-	out = out()
-
-	assert "{}" not in out
-	assert "kwargs" not in out
+	assert result == 10
+	assert_not_has(text, "{}")
+	assert_not_has(text, "kwargs")
+	assert_no_internal_leaks(text)
 
 
 def test_nested_function_name(out):
@@ -75,11 +80,12 @@ def test_nested_function_name(out):
 
 		return inner()
 
-	outer()
+	result = outer()
+	text = out()
 
-	out = out()
-
-	assert "Calling outer.inner()" in out
+	assert result == 5
+	assert_has(text, "Calling outer.inner()")
+	assert_no_internal_leaks(text)
 
 
 def test_append_human_readable(out):
@@ -87,12 +93,14 @@ def test_append_human_readable(out):
 	def foo():
 		arr = []
 		arr.append(5)
+		return arr
 
-	foo()
+	result = foo()
+	text = out()
 
-	out = out()
-
-	assert "Added 5 to the end of arr" in out
+	assert result == [5]
+	assert_has(text, "Added 5 to the end of arr")
+	assert_no_internal_leaks(text)
 
 
 def test_extend_single_value(out):
@@ -100,12 +108,14 @@ def test_extend_single_value(out):
 	def foo():
 		arr = []
 		arr.extend([7])
+		return arr
 
-	foo()
+	result = foo()
+	text = out()
 
-	out = out()
-
-	assert "Added 7 to arr" in out
+	assert result == [7]
+	assert_has(text, "Added 7 to arr")
+	assert_no_internal_leaks(text)
 
 
 def test_extend_multiple_values(out):
@@ -113,12 +123,14 @@ def test_extend_multiple_values(out):
 	def foo():
 		arr = []
 		arr.extend([1, 2, 3])
+		return arr
 
-	foo()
+	result = foo()
+	text = out()
 
-	out = out()
-
-	assert "Added [1, 2, 3] to arr" in out
+	assert result == [1, 2, 3]
+	assert_has(text, "Added [1, 2, 3] to arr")
+	assert_no_internal_leaks(text)
 
 
 def test_no_set_prefix(out):
@@ -127,11 +139,15 @@ def test_no_set_prefix(out):
 		x = 10
 		return x
 
-	foo()
+	result = foo()
+	text = out()
 
-	out = out()
-
-	assert "(set)" not in out
+	assert result == 10
+	assert_not_has(text, "(set)")
+	assert "Defined foo = 10" in text or "x = 10" in text or "foo.x = 10" in text, (
+		f"Expected variable assignment in:\n{text}"
+	)
+	assert_no_internal_leaks(text)
 
 
 def test_variable_visible(out):
@@ -140,11 +156,12 @@ def test_variable_visible(out):
 		x = 42
 		return x
 
-	foo()
+	result = foo()
+	text = out()
 
-	out = out()
-
-	assert "x = 42" in out or "foo.x = 42" in out
+	assert result == 42
+	assert_has(text, "x = 42")
+	assert_no_internal_leaks(text)
 
 
 def test_log_inside_function_inherits_mode(out):
@@ -152,25 +169,29 @@ def test_log_inside_function_inherits_mode(out):
 	def foo():
 		x = 5
 		log("Value is $x")
+		return x
 
-	foo()
+	result = foo()
+	text = out()
 
-	out = out()
-
-	assert "Value is 5" in out
-	assert "test_" not in out
+	assert result == 5
+	assert_has(text, "Value is 5")
+	assert_not_has(text, "test_")
+	assert_no_internal_leaks(text)
 
 
 def test_no_file_info(out):
 	@log(mode="edu")
 	def foo():
 		x = 1
+		return x
 
-	foo()
+	result = foo()
+	text = out()
 
-	out = out()
-
-	assert ".py:" not in out
+	assert result == 1
+	assert_not_has(text, ".py:")
+	assert_no_internal_leaks(text)
 
 
 def test_time_present(out):
@@ -179,10 +200,10 @@ def test_time_present(out):
 		pass
 
 	foo()
+	text = out()
 
-	out = out()
-
-	assert "[" in out and "s]" in out
+	assert "[" in text and "s]" in text
+	assert_no_internal_leaks(text)
 
 
 def test_algorithm_like_flow(out):
@@ -192,62 +213,60 @@ def test_algorithm_like_flow(out):
 		arr.append(3)
 		arr.append(1)
 		arr.extend([2])
-
 		log("Final: $arr")
-
 		return arr
 
-	simple()
+	result = simple()
+	text = out()
 
-	out = out()
-
-	assert "Added 3 to the end of arr" in out
-	assert "Added 1 to the end of arr" in out
-	assert "Added 2 to arr" in out
-	assert "Final: [3, 1, 2]" in out
+	assert result == [3, 1, 2]
+	assert_has(text, "Added 3 to the end of arr")
+	assert_has(text, "Added 1 to the end of arr")
+	assert_has(text, "Added 2 to arr")
+	assert_has(text, "Final: [3, 1, 2]")
+	assert_no_internal_leaks(text)
 
 
 def test_global_mode_full(out):
 	set_mode("full")
-
 	try:
 
 		@log
 		def foo():
 			return 1
 
-		foo()
+		result = foo()
+		text = out()
 
-		out = out()
-
-		assert "(call)" in out
-		assert "Calling" not in out
+		assert result == 1
+		assert_has(text, "(call)")
+		assert_not_has(text, "Calling")
+		assert_no_internal_leaks(text)
 	finally:
 		set_mode("full")
 
 
 def test_global_mode_edu(out):
 	set_mode("edu")
-
 	try:
 
 		@log
 		def foo():
 			return 1
 
-		foo()
+		result = foo()
+		text = out()
 
-		out = out()
-
-		assert "Calling foo()" in out
-		assert "(call)" not in out
+		assert result == 1
+		assert_has(text, "Calling foo()")
+		assert_not_has(text, "(call)")
+		assert_no_internal_leaks(text)
 	finally:
 		set_mode("full")
 
 
 def test_mode_toggle_mid_execution(out):
 	set_mode("full")
-
 	try:
 
 		@log
@@ -257,15 +276,16 @@ def test_mode_toggle_mid_execution(out):
 			b = 2  # edu mode
 			set_mode("full")
 			c = 3  # back to full
+			return a + b + c
 
-		foo()
+		result = foo()
+		text = out()
 
-		out = out()
-
-		assert "(set)" in out or "foo.a" in out
-		assert "(set)" in out or "foo.c" in out
-		assert "b = 2" in out
-
+		assert result == 6
+		assert_has(text, "(set)")
+		assert_has(text, "b = 2")
+		assert_has(text, "c = 3")
+		assert_no_internal_leaks(text)
 	finally:
 		set_mode("full")
 
@@ -279,12 +299,14 @@ def test_default_arg_emitted_once(out):
 
 		return inner()
 
-	outer()
-	out = out()
+	result = outer()
+	text = out()
 
-	assert "Defined outer.inner(x=10)" in out
-	assert "x = 10" in out
-	assert "x = 20" in out
+	assert result == 20
+	assert_has(text, "Defined outer.inner(x=10)")
+	assert_has(text, "x = 10")
+	assert_has(text, "x = 20")
+	assert_no_internal_leaks(text)
 
 
 def test_nested_function_locals_are_tracked(out):
@@ -296,12 +318,17 @@ def test_nested_function_locals_are_tracked(out):
 
 		return inner()
 
-	outer()
-	out = out()
+	result = outer()
+	text = out()
 
-	assert "var = 'test'" in out
-	assert "var = 42" in out
+	assert result == 5
+	assert_has(text, "var = 'test'")
+	assert_has(text, "var = 42")
+	assert_has(text, "Calling outer.inner()")
+	assert_has(text, "Defined outer.inner(var='test')")
+	assert_not_has(text, "Defined outer.inner()")
+	assert_no_internal_leaks(text)
 
-	assert "Calling outer.inner()" in out
-	assert "Defined outer.inner(var='test')" in out
-	assert "Defined outer.inner()" not in out
+
+def lines_from_text(text):
+	return [line.strip() for line in text.splitlines() if line.strip()]

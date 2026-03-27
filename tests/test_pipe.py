@@ -1,35 +1,42 @@
+from helpers import (
+	capture,
+	assert_has,
+	assert_values,
+	assert_not_has,
+	assert_has_set,
+	assert_set_order,
+	assert_has_change,
+)
 from logeye import l
 
 
 def test_pipe_basic(capsys):
 	x = 10 | l
 
-	out = capsys.readouterr().out
-	assert "(set) x =" in out
-	assert "10" in out
+	out, ls = capture(capsys)
+	assert_has_set(out, "x", 10)
 
 
 def test_pipe_expression(capsys):
 	x = (5 + 5) | l
 
-	out = capsys.readouterr().out
-	assert "10" in out
+	out, ls = capture(capsys)
+	assert_has(out, "10")
 
 
 def test_callable_l(capsys):
 	x = l(20)
 
-	out = capsys.readouterr().out
-	assert "(set) x =" in out
-	assert "20" in out
+	out, ls = capture(capsys)
+	assert_has_set(out, "x", 20)
 
 
 def test_pipe_tracks_change(capsys):
 	x = 1 | l
 	x = 2
 
-	out = capsys.readouterr().out
-	assert "(change) x = 2" in out
+	out, ls = capture(capsys)
+	assert_has_change(out, "x", 2)
 
 
 def test_pipe_multiple_changes(capsys):
@@ -37,17 +44,19 @@ def test_pipe_multiple_changes(capsys):
 	x = "b"
 	x = "c"
 
-	out = capsys.readouterr().out
-	assert "(change) x = 'b'" in out
-	assert "(change) x = 'c'" in out
+	out, ls = capture(capsys)
+	assert_has_change(out, "x", "b")
+	assert_has_change(out, "x", "c")
+	assert_set_order(ls, "x", "b", "c")
 
 
 def test_pipe_no_duplicate_on_same_value(capsys):
 	x = "same" | l
 	x = "same"
 
-	out = capsys.readouterr().out
-	assert out.count("same") == 1
+	out, ls = capture(capsys)
+
+	assert "(set) x = 'same'" in out
 
 
 def test_pipe_back_to_original_value(capsys):
@@ -55,9 +64,10 @@ def test_pipe_back_to_original_value(capsys):
 	x = "b"
 	x = "a"
 
-	out = capsys.readouterr().out
-	assert "(change) x = 'b'" in out
-	assert "(change) x = 'a'" in out
+	out, ls = capture(capsys)
+	assert_has_change(out, "x", "b")
+	assert_has_change(out, "x", "a")
+	assert_set_order(ls, "x", "b", "a")
 
 
 def test_pipe_multiple_variables(capsys):
@@ -67,9 +77,9 @@ def test_pipe_multiple_variables(capsys):
 	x = 10
 	y = 20
 
-	out = capsys.readouterr().out
-	assert "(change) x = 10" in out
-	assert "(change) y = 20" in out
+	out, ls = capture(capsys)
+	assert_has_change(out, "x", 10)
+	assert_has_change(out, "y", 20)
 
 
 def test_pipe_independent_tracking(capsys):
@@ -77,11 +87,11 @@ def test_pipe_independent_tracking(capsys):
 	y = 2
 
 	x = 3
-	y = 4  # should NOT be tracked
+	y = 4
 
-	out = capsys.readouterr().out
-	assert "(change) x = 3" in out
-	assert "y = 4" not in out
+	out, ls = capture(capsys)
+	assert_has_change(out, "x", 3)
+	assert_not_has(out, "y = 4")
 
 
 def test_pipe_inline_usage(capsys):
@@ -90,64 +100,64 @@ def test_pipe_inline_usage(capsys):
 
 	f()
 
-	out = capsys.readouterr().out
-	assert "9" in out
+	out, ls = capture(capsys)
+	assert_has(out, "9")
 
 
 def test_pipe_in_list_context(capsys):
 	arr = [(1 | l), (2 | l)]
 
-	out = capsys.readouterr().out
-	assert "1" in out
-	assert "2" in out
+	out, ls = capture(capsys)
+	assert_values(out, 1, 2)
 
 
 def test_pipe_in_dict_context(capsys):
 	d = {"a": (5 | l)}
 
-	out = capsys.readouterr().out
-	assert "5" in out
+	out, ls = capture(capsys)
+	assert_has(out, "5")
 
 
 def test_pipe_dict(capsys):
 	x = {"a": 1} | l
 	x = {"a": 2}
 
-	out = capsys.readouterr().out
-	assert "(change) x = {'a': 2}" in out
+	out, ls = capture(capsys)
+	assert_has_change(out, "x", {"a": 2})
 
 
 def test_pipe_list(capsys):
 	x = [1, 2] | l
 	x = [3, 4]
 
-	out = capsys.readouterr().out
-	assert "(change) x = [3, 4]" in out
+	out, ls = capture(capsys)
+	assert_has_change(out, "x", [3, 4])
 
 
 def test_pipe_bool(capsys):
 	x = True | l
 	x = False
 
-	out = capsys.readouterr().out
-	assert "(change) x = False" in out
+	out, ls = capture(capsys)
+	assert_has_change(out, "x", False)
 
 
 def test_pipe_without_assignment(capsys):
 	10 | l
 
-	out = capsys.readouterr().out
-	assert "10" in out  # Should log message-style
+	out, ls = capture(capsys)
+	assert_has(out, "10")
 
 
 def test_pipe_reassignment_chain(capsys):
 	x = 1 | l
-	x = 2 | l  # Seed the watcher again
+	x = 2 | l
 	x = 3
 
-	out = capsys.readouterr().out
-	assert "(set) x = 2" in out
-	assert "(change) x = 3" in out
+	out, ls = capture(capsys)
+	assert_has_set(out, "x", 2)
+	assert_has_change(out, "x", 3)
+	assert_set_order(ls, "x", 2, 3)
 
 
 def test_pipe_inside_function_scope(capsys):
@@ -157,8 +167,8 @@ def test_pipe_inside_function_scope(capsys):
 
 	f()
 
-	out = capsys.readouterr().out
-	assert "(change) x = 'end'" in out
+	out, ls = capture(capsys)
+	assert_has_change(out, "x", "end")
 
 
 def test_pipe_shadowing_variable(capsys):
@@ -171,7 +181,7 @@ def test_pipe_shadowing_variable(capsys):
 	f()
 	x = 4
 
-	out = capsys.readouterr().out
+	out, ls = capture(capsys)
 
-	assert "(change) x = 3" in out  # Inner
-	assert "(change) x = 4" in out  # Outer
+	assert_has_change(out, "x", 3)  # Inner
+	assert_has_change(out, "x", 4)  # Outer

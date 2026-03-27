@@ -1,6 +1,8 @@
+import pytest
+
+from helpers import capture, assert_has, assert_args, assert_return_value
 from logeye import log
 from functools import lru_cache, wraps
-import pytest
 
 
 @log
@@ -25,14 +27,14 @@ def test_log_with_single_wrapper(capsys):
 
 	f(5)
 
-	out = capsys.readouterr().out
+	out, ls = capture(capsys)
 
-	assert "(call)" in out
-	assert "(return)" in out
+	assert_has(out, "(call)")
+	assert_has(out, "(return)")
 
-	assert "f" in out
-	assert "args=(5" in out
-	assert "-> 6" in out
+	assert_has(out, "f")
+	assert_args(out, 5)
+	assert_return_value(out, 6)
 
 
 def test_log_inside_wrapper(capsys):
@@ -43,10 +45,10 @@ def test_log_inside_wrapper(capsys):
 
 	f(3)
 
-	out = capsys.readouterr().out
+	out, ls = capture(capsys)
 
-	assert "(call)" in out
-	assert "(return)" in out
+	assert_has(out, "(call)")
+	assert_has(out, "(return)")
 
 
 def test_multiple_wrappers(capsys):
@@ -73,11 +75,11 @@ def test_multiple_wrappers(capsys):
 
 	f(10)
 
-	out = capsys.readouterr().out
+	out, ls = capture(capsys)
 
-	assert "(call)" in out
-	assert "(return)" in out
-	assert "y = 11" in out
+	assert_has(out, "(call)")
+	assert_has(out, "(return)")
+	assert_has(out, "y = 11")
 
 
 def test_nested_inside_wrapped_function(capsys):
@@ -91,9 +93,9 @@ def test_nested_inside_wrapped_function(capsys):
 
 	outer()
 
-	out = capsys.readouterr().out
+	out, ls = capture(capsys)
 
-	assert "inner" in out  # call should be visible
+	assert_has(out, "inner")  # call should be visible
 
 
 def test_recursive_with_wrapper(capsys):
@@ -106,11 +108,11 @@ def test_recursive_with_wrapper(capsys):
 
 	fib(4)
 
-	out = capsys.readouterr().out
+	out, ls = capture(capsys)
 
-	assert "(call)" in out
-	assert "(return)" in out
-	assert "fib" in out
+	assert_has(out, "(call)")
+	assert_has(out, "(return)")
+	assert_has(out, "fib")
 
 
 @pytest.mark.xfail(
@@ -126,7 +128,7 @@ def test_lru_cache_not_traced(capsys):
 
 	fib(5)
 
-	out = capsys.readouterr().out
+	out, ls = capture(capsys)
 
 	# What we WANT (but currently can't get :( )
 	assert "inner" in out or "fib(" in out
