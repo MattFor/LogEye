@@ -1,8 +1,185 @@
 # Changelog
 
+## [1.5.0] - 2026-03-27
+
+### Added
+
+* **Global variable tracking improvements**
+
+    * `var = log(val)` now reliably registers variables for continuous tracking
+    * Improved watcher integration with global trace system  
+      For example:
+      ```python
+      x = "xyz" | l
+      
+      x = 10
+      x = {"a": 1, "b": 2}
+      x = "xyz"
+      ```
+      Completely automatically does this!
+      ```commandline
+      [0.000s] demo1.py:15 (set) x = 'xyz'
+      [0.000s] demo1.py:18 (change) x = 10
+      [0.000s] demo1.py:19 (change) x = {'a': 1, 'b': 2}
+      [0.000s] demo1.py:21 (change) x = 'xyz'
+      ```
+
+* **Class instrumentation (`@log` on classes)**
+
+    * Logs `__init__` calls with arguments
+    * Tracks attribute assignments on instances
+    * Supports mutation detection:
+
+        * `(set)` for first assignment
+        * `(change)` for updates
+    * Attribute deletion tracking (`<deleted>`)
+    * Private attributes are now logged with `<priv>` prefix  
+      Automatic garbage noise differentiation between _hidden and _stdlibstuff!
+
+* **Deep nested structure tracking**
+
+    * Enables mutation logging like:
+
+        * `obj.user["name"] = ...`
+        * `obj.items.append(...)`
+
+* **log and l unification**
+
+    * Both log and l now refer to the same function
+    * `log` is now the preferred function for logging
+    * `l` is preferred for pipe operations
+  ```python
+  x = "xyz" | l # For tracking variables
+  log("X is $x") # For manual logging
+  ```
+
+* **Full class method logging**
+
+    * Methods inside `@log` classes are now fully traced
+    * Includes:
+
+        * method calls (`(call) obj.method`)
+        * returns (`(return) obj.method -> value`)
+        * internal state mutations during method execution
+    * Class instances now behave like fully traceable execution scopes
+
+* **Directional flow indicators**
+
+    * Introduced clearer execution flow markers:
+
+        * `->` for outputs / returns
+        * `<-` (internally / structurally) for flow consistency
+    * Improves readability of execution traces, especially for nested calls
+
+* **Educational mode improvements**
+
+    * Better alignment with real execution order:
+
+        * `Calling → state changes → return`
+    * More consistent variable display (`x = value`)
+    * Reduced ambiguity between definition vs mutation
+    * Cleaner, more predictable output for testing
+
+
+### Changed
+
+* **Stricter and expanded test suite**
+
+    * Standardised output capturing using `capture(capsys)`
+    * Introduced reusable assertion helpers across all test files
+
+* **Educational test expectations tightened**
+
+    * Tests now assert:
+
+        * exact number of lines
+        * exact ordering of events
+    * Prevents regression via accidental extra logs
+
+* **Formatting consistency overhaul**
+
+    * Unified output across:
+        * message logging
+        * function tracing
+        * object mutations
+    * Reduced inconsistencies between different logging paths
+
+### Fixed
+
+* Nested function names appearing incorrectly (e.g. `test_x.outer.inner`)
+* Duplicate function definition emissions (`Defined inner()` appearing twice)
+* Missing default arguments in nested function definitions
+* Incorrect ordering of:
+    * `Calling inner()`
+    * `Defined outer.inner(...)`
+* Lambda logging inconsistencies (missing or duplicated outputs)
+* Variable tracking inside nested scopes
+* Attribute access issues when wrapping class instances
+* Broken method calls on logged class instances (`LoggedObject` conflicts)
+* Nested structure mutations not being tracked correctly
+* List/dict attributes not emitting mutation events
+* Recursion errors in self-referencing structures
+* Mixed formatting (`{}` + `$var`) not expanding correctly
+* Pipe operator edge cases and name inference issues
+
+### Discovered Limitations
+
+* **C-based decorators (e.g. `functools.lru_cache`)**
+
+    * Inner execution cannot be traced due to lack of Python-level introspection
+
+* **Nested assignment unpacking**
+
+    * Complex patterns like:
+
+      ```python
+      (a, (b, c)) = ...
+      ```
+    * Only partially tracked due to Python runtime limitations (no full AST access)  
+      However! I will be getting to this soon!
+
+### Dev
+
+* Significantly expanded test suite for edge cases and complex scenarios
+* Improved internal structure for future features (method tracing, advanced introspection)
+* Added multiple branches for easier separation:
+    * master -> stable
+    * dev -> development
+    * readme-changelog -> documentation
+    * feature -> feature branches
+    * tests -> test coverage
+    * demos -> demos and examples
+
+### Plans
+
+* **Repeated identical assignments edge case**
+
+    * Intended behavior:
+
+      ```python
+      x = "a" | l
+      x = "a"
+      x = "a"
+      ```
+
+      should produce:
+
+      ```
+      (set) x = 'a'
+      (change) x = 'a'
+      (change) x = 'a'
+      ```
+    * Currently not fully implemented in all paths
+* Upcoming feature plans are now just the sub-branches on the features/ branch.
+* Standardising and improving demos and documentation
+
+
+---
+
 ## [1.4.0] - 2026-03-24
 
 ### Added
+
 * Educational mode now includes clear return output:
     * `(function) returned (value)` style formatting for better readability
 * Integrated Ruff for consistent formatting and linting
@@ -11,6 +188,7 @@
 * Improved educational mode examples in README and demos
 
 ### Changed
+
 * Improved consistency of call and return formatting
 * Updated publishing pipeline:
     * automatic Ruff formatting
@@ -18,34 +196,47 @@
 * Internal refactors to support typing and future maintainability
 
 ### Fixed
+
 * Various formatting inconsistencies between full and educational modes
 * Edge cases in return logging output
 * Minor issues in logging behaviour uncovered during type integration
 
 ### Developer Experience
+
 * Added Ruff integration for standardised code style
 * Added basedpyright integration for type safety
 * Improved contribution workflow and code consistency
 
 ### Plans
+
 * Multithreading support!
+
+---
 
 ## [1.3.2] - 2026-03-24
 
 ### Added
+
 * set_mode() for setting the mode globally (f.e to education)
 * More tests for the global mode setting
 
 ### Improved
+
 * README examples
+
+---
 
 ## [1.3.1] - 2026-03-24
 
 ### Added
+
 * Comprehensive README overhaul with clearer structure and examples
 
-### Dev / Tooling
+### Dev
+
 * Improved release pipeline with automated versioning and GitHub releases
+
+---
 
 ## [1.3.0] - 2026-03-24
 
@@ -103,6 +294,8 @@
     * Inherited logging behavior
     * Human-readable mutations
     * Output cleanliness
+
+---
 
 ## [1.2.0] - 2026-03-23
 
