@@ -207,7 +207,7 @@ def _default_formatter(
 				if call_sig:
 					func_name = call_sig.split("(")[0]
 					clean_name = _display_name(func_name)
-					args_part = call_sig[len(func_name):]
+					args_part = call_sig[len(func_name) :]
 
 					return f"{prefix}{clean_name}{args_part} returned {result!r}"
 
