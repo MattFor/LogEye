@@ -143,9 +143,9 @@ if [[ "$GIT_ONLY" == false ]]; then
   TEST_OUTPUT=$(pytest --maxfail=0 --disable-warnings -q 2>&1 || true)
   echo "$TEST_OUTPUT"
 
-  PASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= passed)' | head -1)
-  FAILED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= failed)' | head -1)
-  XPASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= xpassed)' | head -1)
+  PASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= passed)' | head -1 || true)
+  FAILED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= failed)' | head -1 || true)
+  XPASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= xpassed)' | head -1 || true)
 
   PASSED=${PASSED:-0}
   FAILED=${FAILED:-0}
