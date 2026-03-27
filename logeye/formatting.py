@@ -43,11 +43,11 @@ def _path(obj: object) -> str:
 
 
 def _format_change_payload(
-		name: str,
-		payload: dict[str, object],
-		prefix: str,
-		*,
-		include_kind: bool = True,
+	name: str,
+	payload: dict[str, object],
+	prefix: str,
+	*,
+	include_kind: bool = True,
 ) -> str | None:
 	op = payload.get("op")
 	val = payload.get("value")
@@ -68,16 +68,16 @@ def _format_change_payload(
 
 
 def _default_formatter(
-		elapsed: float,
-		kind: Kind,
-		name: str,
-		value: object,
-		filename: str | None,
-		lineno: int | None,
-		*,
-		show_time: bool = True,
-		show_file: bool = True,
-		show_lineno: bool = True,
+	elapsed: float,
+	kind: Kind,
+	name: str,
+	value: object,
+	filename: str | None,
+	lineno: int | None,
+	*,
+	show_time: bool = True,
+	show_file: bool = True,
+	show_lineno: bool = True,
 ):
 	parts = []
 
@@ -136,7 +136,11 @@ def _default_formatter(
 				if op == "setitem":
 					return f"{prefix}set {short_name} = {val} -> {state}"
 
-			if kind == "set" and isinstance(value, dict) and value.get("type") == "function":
+			if (
+				kind == "set"
+				and isinstance(value, dict)
+				and value.get("type") == "function"
+			):
 				defaults = value.get("defaults", {})
 				short_name = _display_name(name)
 
