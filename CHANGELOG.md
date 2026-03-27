@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.5.0] - 2026-03-?
+## [1.5.0] - 2026-03-27
 
 ### Added
 
@@ -53,60 +53,48 @@
   log("X is $x") # For manual logging
   ```
 
-* **Mixed formatting support**
+* **Full class method logging**
 
-    * Combine `{}` formatting with `$var` templates:
+    * Methods inside `@log` classes are now fully traced
+    * Includes:
 
-      ```python
-      log("value: {} and $x", x)
-      ```
+        * method calls (`(call) obj.method`)
+        * returns (`(return) obj.method -> value`)
+        * internal state mutations during method execution
+    * Class instances now behave like fully traceable execution scopes
 
-* **Recursive structure protection**
+* **Directional flow indicators**
 
-    * Prevents infinite recursion in self-referencing objects
-    * Safe fallback representation for cyclic references
+    * Introduced clearer execution flow markers:
 
-* **Expanded test coverage**
+        * `->` for outputs / returns
+        * `<-` (internally / structurally) for flow consistency
+    * Improves readability of execution traces, especially for nested calls
 
-    * Complex object mutation scenarios
-    * Class behaviours (methods, inheritance, overrides)
-    * Edge cases (inline expressions, unpacking, pipes, formatting)
-    * Multi-decorator compatibility tests
-    * Nested functions and scope handling
-    * Lambda execution patterns
-    * Default argument correctness
-    * Variable tracking consistency
-    * Edge cases (pipes, unpacking, inline expressions)
+* **Educational mode improvements**
+
+    * Better alignment with real execution order:
+
+        * `Calling → state changes → return`
+    * More consistent variable display (`x = value`)
+    * Reduced ambiguity between definition vs mutation
+    * Cleaner, more predictable output for testing
+
 
 ### Changed
 
-* **Class logging architecture refactor**
+* **Stricter and expanded test suite**
 
-    * Removed reliance on internal `_data` for class instances
-    * Switched to direct attribute instrumentation
-    * Clear separation between:
-        * class instrumentation
-        * object wrapping system
+    * Standardised output capturing using `capture(capsys)`
+    * Introduced reusable assertion helpers across all test files
 
-* **Function tracing architecture overhaul**
-    * Reworked `sys.settrace` usage for:
-        * nested function detection
-        * cleaner call/return matching
-    * Improved frame tracking and scope resolution
+* **Educational test expectations tightened**
 
-**Educational mode formatting**
+    * Tests now assert:
 
-* Simplified output:
-    * removed excessive noise
-    * improved ordering (call → state → return)
-* More predictable and testable output
-
-* **Logging semantics upgraded and fixed**
-
-    * Distinction between:
-        * `(set)` -> initial assignment
-        * `(change)` -> reassignment
-    * More meaningful state transitions in output
+        * exact number of lines
+        * exact ordering of events
+    * Prevents regression via accidental extra logs
 
 * **Formatting consistency overhaul**
 
@@ -122,8 +110,8 @@
 * Duplicate function definition emissions (`Defined inner()` appearing twice)
 * Missing default arguments in nested function definitions
 * Incorrect ordering of:
-  * `Calling inner()`
-  * `Defined outer.inner(...)`
+    * `Calling inner()`
+    * `Defined outer.inner(...)`
 * Lambda logging inconsistencies (missing or duplicated outputs)
 * Variable tracking inside nested scopes
 * Attribute access issues when wrapping class instances
@@ -164,8 +152,27 @@
 
 ### Plans
 
+* **Repeated identical assignments edge case**
+
+    * Intended behavior:
+
+      ```python
+      x = "a" | l
+      x = "a"
+      x = "a"
+      ```
+
+      should produce:
+
+      ```
+      (set) x = 'a'
+      (change) x = 'a'
+      (change) x = 'a'
+      ```
+    * Currently not fully implemented in all paths
 * Upcoming feature plans are now just the sub-branches on the features/ branch.
 * Standardising and improving demos and documentation
+
 
 ---
 
