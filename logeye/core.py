@@ -19,7 +19,6 @@ from .introspection.templates import _expand_template
 from .wrappers import (
 	_path,
 	_wrap_value,
-
 	LoggedSet,
 	LoggedList,
 	LoggedDict,
@@ -60,15 +59,15 @@ def _resolve_filepath(file: str | None = None, filepath: str | None = None) -> s
 
 
 def _wrap_class_methods(
-		cls: type,
-		logged_cls: type,
-		*,
-		filepath: str | None,
-		level: Level,
-		mode: Mode,
-		show_time: bool,
-		show_file: bool,
-		show_lineno: bool,
+	cls: type,
+	logged_cls: type,
+	*,
+	filepath: str | None,
+	level: Level,
+	mode: Mode,
+	show_time: bool,
+	show_file: bool,
+	show_lineno: bool,
 ) -> None:
 	for attr_name, attr_value in list(cls.__dict__.items()):
 		if attr_name in {
@@ -125,14 +124,14 @@ def _wrap_class_methods(
 
 
 def _log_class(
-		cls: type,
-		*,
-		filepath: str | None = None,
-		level: Level = "full",
-		mode: Mode = "full",
-		show_time: bool = True,
-		show_file: bool = True,
-		show_lineno: bool = True,
+	cls: type,
+	*,
+	filepath: str | None = None,
+	level: Level = "full",
+	mode: Mode = "full",
+	show_time: bool = True,
+	show_file: bool = True,
+	show_lineno: bool = True,
 ) -> type:
 	"""
 	Wrap a class so its instances become LoggedObjects
@@ -157,7 +156,7 @@ def _log_class(
 			call_filename, call_lineno = _get_location(call_frame)
 
 			instance_name = (
-					_get_assignment_target_for_call(call_frame) or type(self).__name__.lower()
+				_get_assignment_target_for_call(call_frame) or type(self).__name__.lower()
 			)
 
 			# Store the display name without triggering __setattr__
@@ -292,12 +291,12 @@ def _log_class(
 
 
 def watch(
-		value: T,
-		name: str | None = None,
-		*,
-		show_time: bool = True,
-		show_file: bool = True,
-		show_lineno: bool = True,
+	value: T,
+	name: str | None = None,
+	*,
+	show_time: bool = True,
+	show_file: bool = True,
+	show_lineno: bool = True,
 ) -> T:
 	"""
 	Log without changing behaviour
@@ -419,16 +418,16 @@ def _unwrap_callable(func: Callable[..., object]) -> Callable[..., object]:
 
 
 def _log_function(
-		func: Callable[P, T],
-		*,
-		filepath: str | None = None,
-		level: Level = "full",
-		filter_set: set[str] | None = None,
-		mode: Mode = "full",
-		show_time: bool = True,
-		show_file: bool = True,
-		show_lineno: bool = True,
-		show_wrapper_locals: bool = False,
+	func: Callable[P, T],
+	*,
+	filepath: str | None = None,
+	level: Level = "full",
+	filter_set: set[str] | None = None,
+	mode: Mode = "full",
+	show_time: bool = True,
+	show_file: bool = True,
+	show_lineno: bool = True,
+	show_wrapper_locals: bool = False,
 ) -> Callable[P, T]:
 	"""
 	Wrap a function to trace:
@@ -679,7 +678,7 @@ def _log_function(
 					return tracer
 
 				if frame.f_code in allowed_codes or (
-						frame.f_back and frame.f_back.f_code in allowed_codes
+					frame.f_back and frame.f_back.f_code in allowed_codes
 				):
 					if event == "line":
 						current = dict(frame.f_locals)
@@ -696,16 +695,16 @@ def _log_function(
 								continue
 
 							if (
-									mode == "educational"
-									and key in ("_")
-									or key
-									in {
-								"args",
-								"kwargs",
-								"allowed_codes",
-								"call_counter",
-								"tracer",
-							}
+								mode == "educational"
+								and key in ("_")
+								or key
+								in {
+									"args",
+									"kwargs",
+									"allowed_codes",
+									"call_counter",
+									"tracer",
+								}
 							):
 								continue
 
@@ -717,7 +716,7 @@ def _log_function(
 								continue
 
 							if not isinstance(
-									value, (LoggedObject, LoggedList, LoggedDict, LoggedSet)
+								value, (LoggedObject, LoggedList, LoggedDict, LoggedSet)
 							):
 								wrapped = _wrap_value(
 									value, name=f"{display_call_name}.{key}"
@@ -765,14 +764,15 @@ def _log_function(
 								"kwargs": kwargs,
 							}
 							if not is_method_like:
-								payload["call_signature"] = payload["call_signature"] = call_signature
+								payload["call_signature"] = payload["call_signature"] = (
+									call_signature
+								)
 
 								# 	(
 								# 	call_signature
 								# 	if return_name == display_call_name
 								# 	else f"{return_name}()"
 								# )
-
 
 							_emit(
 								"return",
@@ -813,12 +813,12 @@ def _log_function(
 
 
 def _log_object(
-		obj: T | Mapping[K, V],
-		name: str | None = None,
-		*,
-		show_time: bool = True,
-		show_file: bool = True,
-		show_lineno: bool = True,
+	obj: T | Mapping[K, V],
+	name: str | None = None,
+	*,
+	show_time: bool = True,
+	show_file: bool = True,
+	show_lineno: bool = True,
 ) -> T | LoggedObject[T | Mapping[K, V]] | Mapping[K, V]:
 	if not config._g_enabled or config._g_deco_only:
 		return obj
@@ -861,12 +861,12 @@ def _log_object(
 
 
 def _log_message(
-		text: str,
-		*args: object,
-		show_time: bool = True,
-		show_file: bool = True,
-		show_lineno: bool = True,
-		**kwargs: object,
+	text: str,
+	*args: object,
+	show_time: bool = True,
+	show_file: bool = True,
+	show_lineno: bool = True,
+	**kwargs: object,
 ) -> str:
 	frame = _caller_frame()
 
@@ -947,100 +947,100 @@ def _log_message(
 
 @overload
 def _dispatch_log(
-		obj: str,
-		*args: object,
-		file: str | None = ...,
-		filepath: str | None = ...,
-		level: Level = ...,
-		filter: Iterable[str] | None = ...,
-		mode: Mode | None = ...,
-		show_time: bool | None = ...,
-		show_file: bool | None = ...,
-		show_lineno: bool | None = ...,
-		show_wrapper_locals: bool | None = None,
-		**kwargs: object,
+	obj: str,
+	*args: object,
+	file: str | None = ...,
+	filepath: str | None = ...,
+	level: Level = ...,
+	filter: Iterable[str] | None = ...,
+	mode: Mode | None = ...,
+	show_time: bool | None = ...,
+	show_file: bool | None = ...,
+	show_lineno: bool | None = ...,
+	show_wrapper_locals: bool | None = None,
+	**kwargs: object,
 ) -> str: ...
 
 
 @overload
 def _dispatch_log(
-		*,
-		file: str | None = ...,
-		filepath: str | None = ...,
-		level: Level = ...,
-		filter: Iterable[str] | None = ...,
-		mode: Mode | None = ...,
-		show_time: bool | None = ...,
-		show_file: bool | None = ...,
-		show_lineno: bool | None = ...,
-		show_wrapper_locals: bool | None = None,
+	*,
+	file: str | None = ...,
+	filepath: str | None = ...,
+	level: Level = ...,
+	filter: Iterable[str] | None = ...,
+	mode: Mode | None = ...,
+	show_time: bool | None = ...,
+	show_file: bool | None = ...,
+	show_lineno: bool | None = ...,
+	show_wrapper_locals: bool | None = None,
 ) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
 @overload
 def _dispatch_log(
-		obj: Mapping[K, V],
-		*args: object,
-		file: str | None = ...,
-		filepath: str | None = ...,
-		level: Level = ...,
-		filter: Iterable[str] | None = ...,
-		mode: Mode | None = ...,
-		show_time: bool | None = ...,
-		show_file: bool | None = ...,
-		show_lineno: bool | None = ...,
-		show_wrapper_locals: bool | None = None,
-		**kwargs: object,
+	obj: Mapping[K, V],
+	*args: object,
+	file: str | None = ...,
+	filepath: str | None = ...,
+	level: Level = ...,
+	filter: Iterable[str] | None = ...,
+	mode: Mode | None = ...,
+	show_time: bool | None = ...,
+	show_file: bool | None = ...,
+	show_lineno: bool | None = ...,
+	show_wrapper_locals: bool | None = None,
+	**kwargs: object,
 ) -> LoggedDict[K, V]: ...
 
 
 @overload
 def _dispatch_log(
-		obj: Callable[P, T],
-		*args: object,
-		file: str | None = ...,
-		filepath: str | None = ...,
-		level: Level = ...,
-		filter: Iterable[str] | None = ...,
-		mode: Mode | None = ...,
-		show_time: bool | None = ...,
-		show_file: bool | None = ...,
-		show_lineno: bool | None = ...,
-		show_wrapper_locals: bool | None = None,
-		**kwargs: object,
+	obj: Callable[P, T],
+	*args: object,
+	file: str | None = ...,
+	filepath: str | None = ...,
+	level: Level = ...,
+	filter: Iterable[str] | None = ...,
+	mode: Mode | None = ...,
+	show_time: bool | None = ...,
+	show_file: bool | None = ...,
+	show_lineno: bool | None = ...,
+	show_wrapper_locals: bool | None = None,
+	**kwargs: object,
 ) -> Callable[P, T]: ...
 
 
 @overload
 def _dispatch_log(
-		obj: T,
-		*args: object,
-		file: str | None = ...,
-		filepath: str | None = ...,
-		level: Level = ...,
-		filter: Iterable[str] | None = ...,
-		mode: Mode | None = ...,
-		show_time: bool | None = ...,
-		show_file: bool | None = ...,
-		show_lineno: bool | None = ...,
-		show_wrapper_locals: bool | None = None,
-		**kwargs: object,
+	obj: T,
+	*args: object,
+	file: str | None = ...,
+	filepath: str | None = ...,
+	level: Level = ...,
+	filter: Iterable[str] | None = ...,
+	mode: Mode | None = ...,
+	show_time: bool | None = ...,
+	show_file: bool | None = ...,
+	show_lineno: bool | None = ...,
+	show_wrapper_locals: bool | None = None,
+	**kwargs: object,
 ) -> T: ...
 
 
 def _dispatch_log(
-		obj: Callable[P, T] | Mapping[K, V] | object = _NO_VALUE,
-		*args: object,
-		file: str | None = None,
-		filepath: str | None = None,
-		level: Level = "full",
-		filter: Iterable[str] | None = None,
-		mode: Mode | None = None,
-		show_time: bool | None = None,
-		show_file: bool | None = None,
-		show_lineno: bool | None = None,
-		show_wrapper_locals: bool | None = None,
-		**kwargs: object,
+	obj: Callable[P, T] | Mapping[K, V] | object = _NO_VALUE,
+	*args: object,
+	file: str | None = None,
+	filepath: str | None = None,
+	level: Level = "full",
+	filter: Iterable[str] | None = None,
+	mode: Mode | None = None,
+	show_time: bool | None = None,
+	show_file: bool | None = None,
+	show_lineno: bool | None = None,
+	show_wrapper_locals: bool | None = None,
+	**kwargs: object,
 ) -> object:
 	"""
 	Dispatches behaviour based on input type:
@@ -1154,19 +1154,19 @@ def _dispatch_log(
 
 class _LogAPI:
 	def __call__(
-			self,
-			obj: Callable[P, T] | Mapping[K, V] | object = _NO_VALUE,
-			*args: object,
-			file: str | None = None,
-			filepath: str | None = None,
-			level: Level = "full",
-			filter: Iterable[str] | None = None,
-			mode: Mode | None = None,
-			show_time: bool | None = None,
-			show_file: bool | None = None,
-			show_lineno: bool | None = None,
-			show_wrapper_locals: bool | None = None,
-			**kwargs: object,
+		self,
+		obj: Callable[P, T] | Mapping[K, V] | object = _NO_VALUE,
+		*args: object,
+		file: str | None = None,
+		filepath: str | None = None,
+		level: Level = "full",
+		filter: Iterable[str] | None = None,
+		mode: Mode | None = None,
+		show_time: bool | None = None,
+		show_file: bool | None = None,
+		show_lineno: bool | None = None,
+		show_wrapper_locals: bool | None = None,
+		**kwargs: object,
 	) -> object:
 		return _dispatch_log(
 			obj,
