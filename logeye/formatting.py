@@ -22,12 +22,24 @@ def _is_simple_value(value: object) -> bool:
 
 def _display_name(name: str) -> str:
 	parts = [p for p in name.split(".") if not p.startswith("test_")]
-
-	# Remove root like "obj"
-	if parts and parts[0] not in ("self",):
-		parts = parts[1:]
-
 	return ".".join(parts) if parts else name
+
+
+def _pretty_arg(a):
+	if hasattr(a, "__class__") and hasattr(a, "__dict__"):
+		return a.__class__.__name__
+	return repr(a)
+
+
+def _path(obj: object) -> str:
+	"""
+	Return a readable name/path for a callable or object
+	"""
+
+	if hasattr(obj, "__qualname__"):
+		return obj.__qualname__.replace(".<locals>.", ".")
+
+	return getattr(obj, "__name__", str(obj))
 
 
 def _format_change_payload(
@@ -69,7 +81,9 @@ def _default_formatter(
 ):
 	parts = []
 
-	if config._g_log_mode == "educational":
+	is_edu_mode = config._g_log_mode == "educational"
+
+	if is_edu_mode:
 		show_file = False
 		show_lineno = False
 
@@ -96,35 +110,35 @@ def _default_formatter(
 
 	prefix = f"{time_prefix}{location_prefix}"
 
-	if config._g_log_mode == "educational":
-		if isinstance(value, dict) and "op" in value:
-			op = value["op"]
-			val = value.get("value")
-			state = value.get("state")
+	if is_edu_mode:
+		if kind in ("set", "change"):
+			is_private = isinstance(value, dict) and value.get("type") == "private"
 
-			short_name = _last_name(name)
+			if isinstance(value, dict) and "op" in value:
+				op = value["op"]
+				val = value.get("value")
+				state = value.get("state")
 
-			if op == "append":
-				return f"{prefix}Added {val} to the end of {short_name}"
+				short_name = _last_name(name)
 
-			if op == "extend":
-				if not val:
-					return None
+				if op == "append":
+					return f"{prefix}Added {val} to the end of {short_name}"
 
-				if len(val) == 1:
-					return f"{prefix}Added {val[0]} to {short_name} -> {state}"
+				if op == "extend":
+					if not val:
+						return None
 
-				return f"{prefix}Added {val} to {short_name} -> {state}"
+					if len(val) == 1:
+						return f"{prefix}Added {val[0]} to {short_name}"
 
-			if op == "setitem":
-				return f"{prefix}set {short_name} = {val} -> {state}"
+					return f"{prefix}Added {val} to {short_name}"
 
-			return f"{prefix}{short_name} changed -> {state}"
+				if op == "setitem":
+					return f"{prefix}set {short_name} = {val} -> {state}"
 
-		if kind == "set":
-			if isinstance(value, dict) and value.get("type") == "function":
-				short_name = name if value.get("type") == "function" else _display_name(name)
+			if kind == "set" and isinstance(value, dict) and value.get("type") == "function":
 				defaults = value.get("defaults", {})
+				short_name = _display_name(name)
 
 				if defaults:
 					args = ", ".join(f"{k}={v!r}" for k, v in defaults.items())
@@ -132,42 +146,64 @@ def _default_formatter(
 
 				return f"{prefix}Defined {short_name}()"
 
-			short_name = _display_name(name)
-			return f"{prefix}{short_name} = {value!r}"
+			actual = value["value"] if is_private else value
+			prefix_priv = "<priv> " if is_private else ""
+
+			if kind == "set":
+				return f"{prefix}Defined {prefix_priv}{_display_name(name)} = {actual!r}"
+
+			return f"{prefix}{prefix_priv}{name} = {actual!r}"
 
 		if kind == "call":
+			if isinstance(value, dict) and value.get("type") == "class_init":
+				cls = value["class_name"].split(".")[-1]
+				inst = value["instance_name"]
+
+				args = value.get("args", ())
+				kwargs = value.get("kwargs", {})
+
+				parts = []
+
+				if args:
+					parts.append(", ".join(repr(a) for a in args))
+
+				if kwargs:
+					parts.append(", ".join(f"{k}={v!r}" for k, v in kwargs.items()))
+
+				arg_str = ", ".join(parts)
+				return f"{prefix}Created new {cls}({arg_str}) as {inst}"
+
+			if name.endswith("__init__"):
+				return None
+
 			func_name = _display_name(name)
 
 			if isinstance(value, dict):
 				args = value.get("args", ())
 				kwargs = value.get("kwargs", {})
 
+				if args and hasattr(args[0], "_logeye_name"):
+					args = args[1:]
+
 				arg_parts = []
-
 				if args:
-					arg_parts.append(", ".join(repr(a) for a in args))
-
+					arg_parts.append(", ".join(_pretty_arg(a) for a in args))
 				if kwargs:
 					arg_parts.append(", ".join(f"{k}={v!r}" for k, v in kwargs.items()))
 
-				args_str = ", ".join(arg_parts)
+				return f"{prefix}Calling {func_name}({', '.join(arg_parts)})"
 
-				return f"{prefix}Calling {func_name}({args_str})"
-
-			return f"{prefix}Calling {func_name}"
+			return f"{prefix}Calling {func_name}()"
 
 		if kind == "return":
 			if isinstance(value, dict):
-				call_signature = value.get("call_signature")
-				return_value = value.get("value")
-				if call_signature:
-					raw_name = call_signature.split("(")[0]
-					func_name = _display_name(raw_name)
-					args_part = call_signature[len(raw_name):]
+				result = value.get("value")
 
-					return f"{prefix}{func_name}{args_part} returned {return_value!r}"
+				func_name = _display_name(name)
 
-			return f"{prefix}Returned {value!r}"
+				return f"{prefix}{func_name}() returned {result!r}"
+
+			return f"{prefix}{value!r}"
 
 	if kind == "message":
 		if not config._g_show_message_meta:
@@ -179,6 +215,38 @@ def _default_formatter(
 		formatted = _format_change_payload(name, value, prefix)
 		if formatted is not None:
 			return formatted
+
+	if isinstance(value, dict) and value.get("type") == "private":
+		value = value["value"]
+
+	if kind == "return" and isinstance(value, dict) and "value" in value:
+		return f"{prefix}({kind}) {_display_name(name)} -> {value['value']!r}"
+
+	if kind == "call" and isinstance(value, dict):
+		args = value.get("args", ())
+		kwargs = value.get("kwargs", {})
+		target = value.get("target")
+
+		# Remove self/cls
+		if args:
+			first = args[0]
+			if hasattr(first, "_logeye_name") or isinstance(first, type):
+				args = args[1:]
+
+		func_name = _display_name(name)
+
+		payload_parts = []
+		if args:
+			payload_parts.append(f"args={args!r}")
+		if kwargs:
+			payload_parts.append(f"kwargs={kwargs!r}")
+
+		payload_str = "{" + ", ".join(payload_parts) + "}" if payload_parts else ""
+
+		if target:
+			return f"{prefix}({kind}) {target} <- {func_name} {payload_str}".rstrip()
+		else:
+			return f"{prefix}({kind}) {func_name} {payload_str}".rstrip()
 
 	return f"{prefix}({kind}) {name} = {value!r}"
 

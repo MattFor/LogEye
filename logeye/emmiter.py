@@ -60,7 +60,7 @@ def _emit(
 		lineno,
 		show_time=show_time,
 		show_file=show_file,
-		show_lineno=show_lineno,
+		show_lineno=show_lineno
 	)
 
 	# Educational mode is on, ignoring stuff

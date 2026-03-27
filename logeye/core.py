@@ -51,15 +51,77 @@ def _resolve_filepath(file: str | None = None, filepath: str | None = None) -> s
 #  CLASS LOGGING
 # ===============
 
-# FIXME: CRITICAL - METHOD CALLS ARE NOT TRACKED FOR CLASSES
-# Currently, @log only tracks attribute changes
-# Methods like `obj.method()` are NOT intercepted or logged
-# We need to wrap or proxy instance methods so calls + returns are traced
-# This is a major missing feature and should be implemented asap on features/class-method-logging
+def _wrap_class_methods(
+		cls: type,
+		logged_cls: type,
+		*,
+		filepath: str | None,
+		level: Level,
+		mode: Mode,
+		show_time: bool,
+		show_file: bool,
+		show_lineno: bool,
+) -> None:
+	for attr_name, attr_value in list(cls.__dict__.items()):
+		if attr_name in {
+			"__module__",
+			"__doc__",
+			"__annotations__",
+			"__dict__",
+			"__weakref__",
+			"__init__",
+		}:
+			continue
+
+		if attr_name.startswith("__") and attr_name.endswith("__"):
+			continue
+
+		if isinstance(attr_value, staticmethod):
+			wrapped = staticmethod(
+				_log_function(
+					attr_value.__func__,
+					filepath=filepath,
+					level=level,
+					mode=mode,
+					show_time=show_time,
+					show_file=show_file,
+					show_lineno=show_lineno
+				)
+			)
+		elif isinstance(attr_value, classmethod):
+			wrapped = classmethod(
+				_log_function(
+					attr_value.__func__,
+					filepath=filepath,
+					level=level,
+					mode=mode,
+					show_time=show_time,
+					show_file=show_file,
+					show_lineno=show_lineno
+				)
+			)
+		elif inspect.isfunction(attr_value):
+			wrapped = _log_function(
+				attr_value,
+				filepath=filepath,
+				level=level,
+				mode=mode,
+				show_time=show_time,
+				show_file=show_file,
+				show_lineno=show_lineno
+			)
+		else:
+			continue
+
+		setattr(logged_cls, attr_name, wrapped)
+
+
 def _log_class(
 		cls: type,
 		*,
 		filepath: str | None = None,
+		level: Level = "full",
+		mode: Mode = "full",
 		show_time: bool = True,
 		show_file: bool = True,
 		show_lineno: bool = True,
@@ -86,98 +148,48 @@ def _log_class(
 			call_frame = _caller_frame()
 			call_filename, call_lineno = _get_location(call_frame)
 
-			_emit(
-				"call",
-				f"{qualname}.__init__",
-				{"args": args, "kwargs": kwargs},
-				filename=call_filename,
-				lineno=call_lineno,
-				filepath=filepath,
-				show_time=show_time,
-				show_file=show_file,
-				show_lineno=show_lineno,
-			)
+			instance_name = _get_assignment_target_for_call(call_frame) or type(self).__name__.lower()
+
+			# Store the display name without triggering __setattr__
+			object.__setattr__(self, "_logeye_name", instance_name)
+
+			prev_mode = config._g_log_mode
+			config._g_log_mode = mode
+			try:
+				_emit(
+					"call",
+					f"{qualname}.__init__",
+					{
+						"type": "class_init",
+						"class_name": qualname,
+						"target": instance_name,
+						"instance_name": instance_name,
+						"args": args,
+						"kwargs": kwargs,
+					},
+					filename=call_filename,
+					lineno=call_lineno,
+					filepath=filepath,
+					show_time=show_time,
+					show_file=show_file,
+					show_lineno=show_lineno,
+				)
+			finally:
+				config._g_log_mode = prev_mode
 
 			original_init(self, *args, **kwargs)
 
-		# def __setattr__(self, name: str, value: object) -> None:
-		# 	is_private = name.startswith("_")
-		#
-		# 	object.__setattr__(self, name, value)
-		#
-		# 	if is_private:
-		# 		object.__setattr__(self, name, value)
-		# 	else:
-		# 		data = object.__getattribute__(self, "_data")
-		# 		log_name = object.__getattribute__(self, "_log_name")
-		#
-		# 		wrapped = _wrap_value(value, name=f"{log_name}.{name}")
-		# 		data[name] = wrapped
-		#
-		# 	frame = _caller_frame()
-		# 	try:
-		# 		filename, lineno = _get_location(frame)
-		#
-		# 		prefix = "<priv> " if is_private else ""
-		# 		full_name = f"{log_name}.{name}" if not is_private else f"{log_name}.{name}"
-		#
-		# 		display_value = (
-		# 			f"<func {_path(value)}>" if callable(value) else value
-		# 		)
-		#
-		# 		_emit_change(
-		# 			full_name,
-		# 			"setattr",
-		# 			state=value,
-		# 			filename=filename,
-		# 			lineno=lineno,
-		# 			value=f"{prefix}{display_value}",
-		# 		)
-		# 	finally:
-		# 		del frame
-		#
-		# 	wrapped = _wrap_value(value, name=f"{class_name}.{name}")
-		# 	object.__setattr__(self, name, wrapped)
-		#
-		# 	frame = _caller_frame()
-		# 	try:
-		# 		filename, lineno = _get_location(frame)
-		#
-		# 		if callable(wrapped):
-		# 			_emit(
-		# 				"set",
-		# 				f"{class_name}.{name}",
-		# 				f"<func {_path(wrapped)}>",
-		# 				filename=filename,
-		# 				lineno=lineno,
-		# 				filepath=filepath,
-		# 				show_time=show_time,
-		# 				show_file=show_file,
-		# 				show_lineno=show_lineno,
-		# 			)
-		# 		else:
-		# 			_emit(
-		# 				"set",
-		# 				f"{class_name}.{name}",
-		# 				wrapped,
-		# 				filename=filename,
-		# 				lineno=lineno,
-		# 				filepath=filepath,
-		# 				show_time=show_time,
-		# 				show_file=show_file,
-		# 				show_lineno=show_lineno,
-		# 			)
-		# 	finally:
-		# 		del frame
-
 		def __setattr__(self, name: str, value: object) -> None:
 			is_private = name.startswith("_")
-			class_name = type(self).__name__.lower()
-
+			instance_name = getattr(self, "_logeye_name", type(self).__name__.lower())
 			already_exists = hasattr(self, name)
 
-			# Wrap for nested tracking
-			wrapped = _wrap_value(value, name=f"{class_name}.{name}")
+			# Wrap for nested tracking, self-references as self
+			if value is self:
+				wrapped = value
+			else:
+				wrapped = _wrap_value(value, name=f"{instance_name}.{name}")
+
 			object.__setattr__(self, name, wrapped)
 
 			if not config._g_enabled:
@@ -185,30 +197,32 @@ def _log_class(
 
 			frame = _caller_frame()
 			try:
+				display_value = value
 				filename, lineno = _get_location(frame)
 
-				prefix = "<priv> " if is_private else ""
-
-				if callable(value):
-					display = f"<func {_path(value)}>"
-				else:
-					display = wrapped
+				if is_private:
+					display_value = {"type": "private", "value": value}
 
 				kind = "change" if already_exists else "set"
 
-				_emit(
-					kind,
-					f"{class_name}.{name}",
-					f"{prefix}{display}",
-					filename=filename,
-					lineno=lineno,
-					filepath=filepath,
-					show_time=show_time,
-					show_file=show_file,
-					show_lineno=show_lineno,
-				)
+				prev_mode = config._g_log_mode
+				config._g_log_mode = mode
+				try:
+					_emit(
+						kind,
+						f"{instance_name}.{name}",
+						display_value,
+						filename=filename,
+						lineno=lineno,
+						filepath=filepath,
+						show_time=show_time,
+						show_file=show_file,
+						show_lineno=show_lineno,
+					)
+				finally:
+					config._g_log_mode = prev_mode
 
-				_mark_emitted(frame, f"{class_name}.{name}")
+				_mark_emitted(frame, f"{instance_name}.{name}")
 			finally:
 				del frame
 
@@ -227,13 +241,18 @@ def _log_class(
 			try:
 				filename, lineno = _get_location(frame)
 
-				_emit(
-					"set",
-					f"{c_name}.{name}",
-					"<deleted>",
-					filename=filename,
-					lineno=lineno,
-				)
+				prev_mode = config._g_log_mode
+				config._g_log_mode = mode
+				try:
+					_emit(
+						"set",
+						f"{c_name}.{name}",
+						"<deleted>",
+						filename=filename,
+						lineno=lineno,
+					)
+				finally:
+					config._g_log_mode = prev_mode
 
 				_mark_emitted(frame, f"{c_name}.{name}")
 			finally:
@@ -242,6 +261,17 @@ def _log_class(
 	LoggedClass.__name__ = cls.__name__
 	LoggedClass.__qualname__ = cls.__qualname__
 	LoggedClass.__module__ = cls.__module__
+
+	_wrap_class_methods(
+		cls,
+		LoggedClass,
+		filepath=filepath,
+		level=level,
+		mode=mode,
+		show_time=show_time,
+		show_file=show_file,
+		show_lineno=show_lineno
+	)
 
 	return LoggedClass
 
@@ -290,7 +320,7 @@ def watch(
 			lineno=lineno,
 			show_time=show_time,
 			show_file=show_file,
-			show_lineno=show_lineno,
+			show_lineno=show_lineno
 		)
 
 		_mark_emitted(frame, name)
@@ -305,7 +335,7 @@ def watch(
 		lineno=lineno,
 		show_time=show_time,
 		show_file=show_file,
-		show_lineno=show_lineno,
+		show_lineno=show_lineno
 	)
 
 	if name:
@@ -402,6 +432,12 @@ def _log_function(
 	target_func = _unwrap_callable(func)
 	target_code = getattr(target_func, "__code__", None)
 
+	is_method_like = bool(
+		target_code
+		and target_code.co_varnames
+		and target_code.co_varnames[0] in {"self", "cls"}
+	)
+
 	func_path = getattr(
 		target_func, "__qualname__", getattr(func, "__qualname__", "")
 	).replace(".<locals>.", ".")
@@ -478,24 +514,36 @@ def _log_function(
 		call_frame = _caller_frame()
 		call_filename, call_lineno = _get_location(call_frame)
 
-		short_name = _shorten_name(call_name)
-		call_signature = _format_call_signature(short_name, args, kwargs)
+		bound_name = None
+		if is_method_like and args:
+			bound_name = getattr(args[0], "_logeye_name", None)
 
-		if _should_emit("call", call_name):
+		display_call_name = call_name
+		if bound_name:
+			method_name = func_path.split(".")[-1]
+			display_call_name = f"{bound_name}.{method_name}"
+
+		call_signature = _format_call_signature(display_call_name, args[1:] if bound_name else args, kwargs)
+
+		if _should_emit("call", display_call_name):
+			target = _get_assignment_target_for_call(call_frame)
+
 			_emit(
 				"call",
-				call_name,
-				{"args": args, "kwargs": kwargs},
+				display_call_name,
+				{"target": target, "args": args, "kwargs": kwargs},
 				filename=call_filename,
 				lineno=call_lineno,
 				filepath=filepath,
 				show_time=show_time,
 				show_file=show_file,
-				show_lineno=show_lineno,
+				show_lineno=show_lineno
 			)
 
 		last_values = {}
 		active_names: dict[FrameType, str] = {}
+
+		lambda_counter: int = 0
 
 		try:
 			def tracer(frame: FrameType, event: str, arg: object):
@@ -518,21 +566,32 @@ def _log_function(
 				if not filename.startswith(call_filename) and not show_wrapper_locals:
 					return tracer
 
+				if frame.f_code is target_code and frame not in active_names:
+					active_names[frame] = display_call_name
+
+				# replace the current event == "call" block with this version
 				if event == "call":
 					parent = frame.f_back
-
 					if not parent:
 						return tracer
 
-					if parent.f_code is not target_code:
-						return tracer
+					parent_name = active_names.get(parent)
 
-					# if code is not target_code and parent.f_code is not target_code:
-					# 	return tracer
+					# First nested call inside the traced function
+					if parent.f_code is target_code and parent_name is None:
+						parent_name = display_call_name
+
+					# Deeper nesting: only trace if we already know the parent chain
+					if parent_name is None:
+						return tracer
 
 					nested_name = code.co_name
 
-					# Skip itself so we don't get cases like outer.outer
+					if nested_name == "<lambda>":
+						nonlocal lambda_counter
+						lambda_counter += 1
+						nested_name = f"lambda#{lambda_counter}"
+
 					if nested_name == target_func.__name__:
 						return tracer
 
@@ -542,19 +601,17 @@ def _log_function(
 					if nested_name in ("currentframe", "abspath", "join", "parse"):
 						return tracer
 
-					nested_full_name = f"{call_name}.{nested_name}"
+					if nested_name.startswith("lambda#"):
+						root_name = display_call_name
+						nested_full_name = f"{root_name}.{nested_name}"
+					else:
+						nested_full_name = f"{parent_name}.{nested_name}"
+
 					active_names[frame] = nested_full_name
 
 					defaults = {}
-
-					argcount = code.co_argcount
-					varnames = code.co_varnames[:argcount]
-
-					# Defaults are stored in a function object, BUT approximation should be possible:
-					# last N args have defaults, but N is unknown here
-					# So need to use frame.f_code + frame.f_locals (they DO contain defaults at call time)
 					if frame.f_locals:
-						for name in varnames:
+						for name in code.co_varnames[:code.co_argcount]:
 							if name in frame.f_locals:
 								defaults[name] = frame.f_locals[name]
 
@@ -587,11 +644,66 @@ def _log_function(
 						show_lineno=show_lineno,
 					)
 
-					# Emit default arguments as initial state
-					if hasattr(code, "co_varnames") and frame.f_locals:
+					if frame.f_locals:
 						for key, value in frame.f_locals.items():
+							if key in {"self", "cls"}:
+								continue
 							if key in code.co_varnames:
 								name = f"{nested_full_name}.{key}"
+								if _should_emit("set", name):
+									_emit(
+										"set",
+										name,
+										value,
+										filename=filename,
+										lineno=lineno,
+										filepath=filepath,
+										show_time=show_time,
+										show_file=show_file,
+										show_lineno=show_lineno,
+									)
+									_mark_emitted(frame, key)
+
+					return tracer
+
+				if frame.f_code in allowed_codes or (
+						frame.f_back and frame.f_back.f_code in allowed_codes
+				):
+					if event == "line":
+						current = dict(frame.f_locals)
+						for key, value in current.items():
+							if key in {"self", "cls"}:
+								last_values[key] = value
+								continue
+
+							if is_method_like and key in code.co_varnames[:code.co_argcount]:
+								last_values[key] = value
+								continue
+
+							if mode == "educational" and key in ("_") or key in {
+								"args", "kwargs", "allowed_codes", "call_counter", "tracer"
+							}:
+								continue
+
+							old = last_values.get(key, object())
+
+							if (frame.f_code, key) in _recently_emitted:
+								_recently_emitted.remove((frame.f_code, key))
+								last_values[key] = value
+								continue
+
+							if not isinstance(value, (LoggedObject, LoggedList, LoggedDict, LoggedSet)):
+								wrapped = _wrap_value(value, name=f"{display_call_name}.{key}")
+								if wrapped is not value:
+									frame.f_locals[key] = wrapped
+									value = wrapped
+
+							frame_name = active_names.get(frame, display_call_name)
+							name = f"{frame_name}.{key}"
+
+							if old != value:
+								if callable(value):
+									continue
 
 								if _should_emit("set", name):
 									_emit(
@@ -606,68 +718,21 @@ def _log_function(
 										show_lineno=show_lineno,
 									)
 
-									_mark_emitted(frame, key)
-
-					return tracer
-
-				if frame.f_code in allowed_codes or (
-						frame.f_back and frame.f_back.f_code in allowed_codes
-				):
-					if event == "line":
-						current = dict(frame.f_locals)
-						for key, value in current.items():
-							if mode == "educational" and key in (
-									"_"
-							) or key in {"args", "kwargs", "allowed_codes", "call_counter",
-							             "tracer"}:  # , "i", "j", "k"):
-								continue
-
-							old = last_values.get(key, object())
-
-							# Skip if already emitted manually
-							if (frame.f_code, key) in _recently_emitted:
-								_recently_emitted.remove((frame.f_code, key))
-								last_values[key] = value  # sync state
-								continue
-
-							if not isinstance(
-									value, (LoggedObject, LoggedList, LoggedDict, LoggedSet)
-							):
-								wrapped = _wrap_value(value, name=f"{call_name}.{key}")
-								if wrapped is not value:
-									frame.f_locals[key] = wrapped
-									value = wrapped
-
-							frame_name = active_names.get(frame, call_name)
-							name = f"{frame_name}.{key}"
-							if old != value:
-								if callable(value):
-									continue
-								else:
-									if _should_emit("set", name):
-										_emit(
-											"set",
-											name,
-											value,
-											filename=filename,
-											lineno=lineno,
-											filepath=filepath,
-											show_time=show_time,
-											show_file=show_file,
-											show_lineno=show_lineno,
-										)
 								last_values[key] = value
 					elif event == "return":
-						if _should_emit("return", call_name):
-							return_name = active_names.get(frame, call_name)
+						if _should_emit("return", display_call_name):
+							return_name = active_names.get(frame, display_call_name)
+
+							payload = {"value": arg}
+							if not is_method_like:
+								payload["call_signature"] = (
+									call_signature if return_name == display_call_name else f"{return_name}()"
+								)
 
 							_emit(
 								"return",
 								return_name,
-								{
-									"value": arg,
-									"call_signature": call_signature if return_name == call_name else f"{return_name}()",
-								},
+								payload,
 								filename=filename,
 								lineno=lineno,
 								filepath=filepath,
@@ -741,7 +806,7 @@ def _log_object(
 		lineno=lineno,
 		show_time=show_time,
 		show_file=show_file,
-		show_lineno=show_lineno,
+		show_lineno=show_lineno
 	)
 
 	_mark_emitted(frame, name)
@@ -808,7 +873,7 @@ def _log_message(
 				lineno=lineno,
 				show_time=show_time,
 				show_file=show_file,
-				show_lineno=show_lineno,
+				show_lineno=show_lineno
 			)
 
 			_mark_emitted(frame, name)
@@ -821,7 +886,7 @@ def _log_message(
 				lineno=lineno,
 				show_time=show_time,
 				show_file=show_file,
-				show_lineno=show_lineno,
+				show_lineno=show_lineno
 			)
 
 	finally:
@@ -972,9 +1037,11 @@ def _dispatch_log(
 				return _log_class(
 					target,
 					filepath=deco_path,
+					level=level,
+					mode=mode,
 					show_time=show_time,
 					show_file=show_file,
-					show_lineno=show_lineno,
+					show_lineno=show_lineno
 				)
 			if callable(target):
 				return _log_function(
@@ -986,7 +1053,7 @@ def _dispatch_log(
 					show_time=show_time,
 					show_file=show_file,
 					show_lineno=show_lineno,
-					show_wrapper_locals=show_wrapper_locals,
+					show_wrapper_locals=show_wrapper_locals
 				)
 			raise TypeError("@log(...) can only decorate a function or class")
 
@@ -996,9 +1063,11 @@ def _dispatch_log(
 		return _log_class(
 			obj,
 			filepath=deco_path,
+			level=level,
+			mode=mode,
 			show_time=show_time,
 			show_file=show_file,
-			show_lineno=show_lineno,
+			show_lineno=show_lineno
 		)
 
 	if callable(obj):
@@ -1011,7 +1080,7 @@ def _dispatch_log(
 			show_time=show_time,
 			show_file=show_file,
 			show_lineno=show_lineno,
-			show_wrapper_locals=show_wrapper_locals,
+			show_wrapper_locals=show_wrapper_locals
 		)
 
 	if isinstance(obj, str):
@@ -1021,7 +1090,7 @@ def _dispatch_log(
 			show_time=show_time,
 			show_file=show_file,
 			show_lineno=show_lineno,
-			**kwargs,
+			**kwargs
 		)
 
 	# Do NOT wrap class instances

@@ -11,6 +11,7 @@ from collections.abc import (
 
 from . import config
 from .emmiter import _emit
+from .formatting import _path
 from .introspection import _caller_frame, _get_location
 from typing import Generic, ParamSpec, SupportsIndex, TypeVar, overload
 
@@ -25,17 +26,6 @@ T = TypeVar("T")
 K = TypeVar("K")
 V = TypeVar("V")
 L = TypeVar("L", bound=_BaseLogged)
-
-
-def _path(obj: object) -> str:
-	"""
-	Return a readable name/path for a callable or object
-	"""
-
-	if hasattr(obj, "__qualname__"):
-		return obj.__qualname__.replace(".<locals>.", ".")
-
-	return getattr(obj, "__name__", str(obj))
 
 
 @overload
@@ -793,6 +783,5 @@ __all__ = [
 	"LoggedList",
 	"LoggedDict",
 	"LoggedSet",
-	"_wrap_value",
-	"_path",
+	"_wrap_value"
 ]
