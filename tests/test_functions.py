@@ -10,10 +10,14 @@ def add(a, b):
 
 def test_logged_function(capsys):
 	res = add(2, 3)
-
 	out = capsys.readouterr().out
-	assert "call" in out
-	assert "return" in out
+
+	assert "(call)" in out
+	assert "(return)" in out
+	assert "add" in out
+	assert "args=(2, 3)" in out
+	assert "-> 5" in out
+
 	assert res == 5
 
 
@@ -157,7 +161,7 @@ def test_recursive_function(capsys):
 
 	out = capsys.readouterr().out
 	assert "fib" in out
-	assert "return" in out
+	assert "(return)" in out
 
 
 def test_exception_does_not_crash_logger(capsys):

@@ -9,16 +9,6 @@ def add(a, b):
 	return result
 
 
-def test_logged_function(capsys):
-	res = add(2, 3)
-
-	out = capsys.readouterr().out
-
-	assert "call" in out
-	assert "return" in out
-	assert res == 5
-
-
 def simple_wrapper(func):
 	@wraps(func)
 	def inner(*args, **kwargs):
@@ -37,9 +27,12 @@ def test_log_with_single_wrapper(capsys):
 
 	out = capsys.readouterr().out
 
-	assert "call" in out
-	assert "return" in out
-	assert "f(5)" in out or "f#1(5)" in out
+	assert "(call)" in out
+	assert "(return)" in out
+
+	assert "f" in out
+	assert "args=(5" in out
+	assert "-> 6" in out
 
 
 def test_log_inside_wrapper(capsys):
@@ -52,8 +45,8 @@ def test_log_inside_wrapper(capsys):
 
 	out = capsys.readouterr().out
 
-	assert "call" in out
-	assert "return" in out
+	assert "(call)" in out
+	assert "(return)" in out
 
 
 def test_multiple_wrappers(capsys):
@@ -82,8 +75,8 @@ def test_multiple_wrappers(capsys):
 
 	out = capsys.readouterr().out
 
-	assert "call" in out
-	assert "return" in out
+	assert "(call)" in out
+	assert "(return)" in out
 	assert "y = 11" in out
 
 
@@ -115,8 +108,8 @@ def test_recursive_with_wrapper(capsys):
 
 	out = capsys.readouterr().out
 
-	assert "call" in out
-	assert "return" in out
+	assert "(call)" in out
+	assert "(return)" in out
 	assert "fib" in out
 
 

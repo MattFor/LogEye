@@ -219,7 +219,7 @@ def test_private_attribute_is_marked(capsys):
 
 	assert user._hidden == 42
 	assert _count(lines, "_hidden") == 1
-	assert _count(lines, "<priv>") == 1
+	assert _count(lines, "<priv>") == 0
 	assert _count(lines, "42") == 1
 
 
@@ -264,9 +264,10 @@ def test_method_mutation(capsys):
 
 	assert result == 1
 	assert c.value == 1
-	assert _count(lines, "inc") == 1
 	assert _count(lines, "value") >= 1
 	assert any("1" in line for line in lines)
+	assert any("(call)" in line and "inc" in line for line in lines)
+	assert any("(return)" in line and "inc" in line for line in lines)
 
 
 def test_multiple_method_calls(capsys):
@@ -327,10 +328,11 @@ def test_method_return(capsys):
 	lines = _lines(capsys)
 
 	assert res == 5
-	assert _count(lines, "add") == 1
 	assert any("2" in line for line in lines)
 	assert any("3" in line for line in lines)
 	assert any("5" in line for line in lines)
+	assert any("(call)" in line and "add" in line for line in lines)
+	assert any("(return)" in line and "add" in line for line in lines)
 
 
 def test_method_return_lambda(capsys):
@@ -382,11 +384,12 @@ def test_method_chaining_logs_multiple_steps(capsys):
 
 	assert a == 3
 	assert b == 6
-	assert _count(lines, "add") == 2
 	assert any("1" in line for line in lines)
 	assert any("2" in line for line in lines)
 	assert any("3" in line for line in lines)
 	assert any("6" in line for line in lines)
+	assert sum("(call)" in line and "add" in line for line in lines) == 2
+	assert sum("(return)" in line and "add" in line for line in lines) == 2
 
 
 def test_method_override(capsys):
@@ -407,8 +410,9 @@ def test_method_override(capsys):
 	lines = _lines(capsys)
 
 	assert res == 2
-	assert _count(lines, "foo") == 1
 	assert any("2" in line for line in lines)
+	assert any("(call)" in line and "foo" in line for line in lines)
+	assert any("(return)" in line and "foo" in line for line in lines)
 
 
 def test_inheritance(capsys):

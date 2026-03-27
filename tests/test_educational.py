@@ -79,7 +79,7 @@ def test_nested_function_name(out):
 
 	out = out()
 
-	assert "Calling inner()" in out or "Calling outer.inner()" in out
+	assert "Calling outer.inner()" in out
 
 
 def test_append_human_readable(out):
@@ -302,6 +302,6 @@ def test_nested_function_locals_are_tracked(out):
 	assert "var = 'test'" in out
 	assert "var = 42" in out
 
-	assert "Calling inner()" in out
+	assert "Calling outer.inner()" in out
 	assert "Defined outer.inner(var='test')" in out
 	assert "Defined outer.inner()" not in out

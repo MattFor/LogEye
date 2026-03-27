@@ -103,8 +103,8 @@ def test_log_decorator_call_and_return(capsys):
 
 	out = capsys.readouterr().out
 
-	assert "call" in out.lower()
-	assert "return" in out.lower()
+	assert "(call)" in out.lower()
+	assert "(return)" in out.lower()
 	assert "5" in out
 
 
