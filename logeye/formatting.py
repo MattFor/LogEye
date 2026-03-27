@@ -156,7 +156,7 @@ def _default_formatter(
 			if kind == "set":
 				return f"{prefix}Defined {prefix_priv}{_display_name(name)} = {actual!r}"
 
-			return f"{prefix}{prefix_priv}{name} = {actual!r}"
+			return f"{prefix}{prefix_priv}{_display_name(name)} = {actual!r}"
 
 		if kind == "call":
 			if isinstance(value, dict) and value.get("type") == "class_init":
@@ -202,9 +202,16 @@ def _default_formatter(
 		if kind == "return":
 			if isinstance(value, dict):
 				result = value.get("value")
+				call_sig = value.get("call_signature")
+
+				if call_sig:
+					func_name = call_sig.split("(")[0]
+					clean_name = _display_name(func_name)
+					args_part = call_sig[len(func_name):]
+
+					return f"{prefix}{clean_name}{args_part} returned {result!r}"
 
 				func_name = _display_name(name)
-
 				return f"{prefix}{func_name}() returned {result!r}"
 
 			return f"{prefix}{value!r}"
@@ -224,7 +231,24 @@ def _default_formatter(
 		value = value["value"]
 
 	if kind == "return" and isinstance(value, dict) and "value" in value:
-		return f"{prefix}({kind}) {_display_name(name)} -> {value['value']!r}"
+		result = value["value"]
+
+		args = value.get("args", ())
+		kwargs = value.get("kwargs", {})
+
+		payload_parts = []
+
+		if args:
+			payload_parts.append(f"args={args!r}")
+
+		if kwargs:
+			payload_parts.append(f"kwargs={kwargs!r}")
+
+		payload_str = "{" + ", ".join(payload_parts) + "}" if payload_parts else ""
+
+		func_name = _display_name(name)
+
+		return f"{prefix}({kind}) {func_name} {payload_str} -> {result!r}".rstrip()
 
 	if kind == "call" and isinstance(value, dict):
 		args = value.get("args", ())
@@ -240,8 +264,12 @@ def _default_formatter(
 		func_name = _display_name(name)
 
 		payload_parts = []
+
 		if args:
-			payload_parts.append(f"args={args!r}")
+			arg_str = ", ".join(repr(a) for a in args)
+			arg_str = f"({arg_str})"
+			payload_parts.append(f"args={arg_str}")
+
 		if kwargs:
 			payload_parts.append(f"kwargs={kwargs!r}")
 

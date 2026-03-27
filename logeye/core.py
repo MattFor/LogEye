@@ -759,13 +759,20 @@ def _log_function(
 						if _should_emit("return", display_call_name):
 							return_name = active_names.get(frame, display_call_name)
 
-							payload = {"value": arg}
+							payload = {
+								"value": arg,
+								"args": args,
+								"kwargs": kwargs,
+							}
 							if not is_method_like:
-								payload["call_signature"] = (
-									call_signature
-									if return_name == display_call_name
-									else f"{return_name}()"
-								)
+								payload["call_signature"] = payload["call_signature"] = call_signature
+
+								# 	(
+								# 	call_signature
+								# 	if return_name == display_call_name
+								# 	else f"{return_name}()"
+								# )
+
 
 							_emit(
 								"return",
