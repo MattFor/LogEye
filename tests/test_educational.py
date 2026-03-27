@@ -1,78 +1,81 @@
-from helpers import assert_has, assert_not_has, assert_no_internal_leaks
+from helpers import (
+	capture,
+	assert_has,
+	assert_not_has,
+	assert_line_count,
+	assert_line_contains,
+	assert_no_internal_leaks,
+)
 from logeye import log, set_mode
 
 
-def test_call_formatting(out):
+def test_call_formatting(capsys):
 	@log(mode="edu")
 	def foo(x):
 		return x
 
 	result = foo(5)
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == 5
-	assert_has(text, "Calling foo(5)")
-	assert_not_has(text, "(call)")
-	assert_not_has(text, "test_")
-	assert_no_internal_leaks(text)
+	assert_has(out, "Calling foo(5)")
+	assert_not_has(out, "(call)")
+	assert_not_has(out, "test_")
+	assert_no_internal_leaks(out)
 
-	ls = lines_from_text(text)
-
-	assert len(ls) == 3
-	assert "Calling foo(5)" in ls[0]
-	assert "Defined foo.x = 5" in ls[1]
-	assert "returned 5" in ls[2]
+	assert_line_count(ls, 3)
+	assert_line_contains(ls, "Calling foo(5)")
+	assert_line_contains(ls, "Defined foo.x = 5")
+	assert_line_contains(ls, "returned 5")
 
 
-def test_return_formatting(out):
+def test_return_formatting(capsys):
 	@log(mode="edu")
 	def foo():
 		return 123
 
 	result = foo()
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == 123
-	assert_has(text, "foo() returned 123")
-	assert_not_has(text, "(return)")
-	assert_no_internal_leaks(text)
+	assert_has(out, "foo() returned 123")
+	assert_not_has(out, "(return)")
+	assert_no_internal_leaks(out)
 
-	ls = lines_from_text(text)
-
-	assert len(ls) == 2
-	assert "Calling foo()" in ls[0]
-	assert "returned 123" in ls[1]
+	assert_line_count(ls, 2)
+	assert_line_contains(ls, "Calling foo()")
+	assert_line_contains(ls, "returned 123")
 
 
-def test_args_and_kwargs(out):
+def test_args_and_kwargs(capsys):
 	@log(mode="edu")
 	def foo(a, b=2):
 		return a + b
 
 	result = foo(1, b=3)
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == 4
-	assert_has(text, "Calling foo(1, b=3)")
-	assert_not_has(text, "kwargs")
-	assert_no_internal_leaks(text)
+	assert_has(out, "Calling foo(1, b=3)")
+	assert_not_has(out, "kwargs")
+	assert_no_internal_leaks(out)
 
 
-def test_no_kwargs_noise(out):
+def test_no_kwargs_noise(capsys):
 	@log(mode="edu")
 	def foo(x):
 		return x
 
 	result = foo(10)
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == 10
-	assert_not_has(text, "{}")
-	assert_not_has(text, "kwargs")
-	assert_no_internal_leaks(text)
+	assert_not_has(out, "{}")
+	assert_not_has(out, "kwargs")
+	assert_no_internal_leaks(out)
 
 
-def test_nested_function_name(out):
+def test_nested_function_name(capsys):
 	@log(mode="edu")
 	def outer():
 		def inner():
@@ -81,14 +84,14 @@ def test_nested_function_name(out):
 		return inner()
 
 	result = outer()
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == 5
-	assert_has(text, "Calling outer.inner()")
-	assert_no_internal_leaks(text)
+	assert_has(out, "Calling outer.inner()")
+	assert_no_internal_leaks(out)
 
 
-def test_append_human_readable(out):
+def test_append_human_readable(capsys):
 	@log(mode="edu")
 	def foo():
 		arr = []
@@ -96,14 +99,14 @@ def test_append_human_readable(out):
 		return arr
 
 	result = foo()
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == [5]
-	assert_has(text, "Added 5 to the end of arr")
-	assert_no_internal_leaks(text)
+	assert_has(out, "Added 5 to the end of arr")
+	assert_no_internal_leaks(out)
 
 
-def test_extend_single_value(out):
+def test_extend_single_value(capsys):
 	@log(mode="edu")
 	def foo():
 		arr = []
@@ -111,14 +114,14 @@ def test_extend_single_value(out):
 		return arr
 
 	result = foo()
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == [7]
-	assert_has(text, "Added 7 to arr")
-	assert_no_internal_leaks(text)
+	assert_has(out, "Added 7 to arr")
+	assert_no_internal_leaks(out)
 
 
-def test_extend_multiple_values(out):
+def test_extend_multiple_values(capsys):
 	@log(mode="edu")
 	def foo():
 		arr = []
@@ -126,45 +129,45 @@ def test_extend_multiple_values(out):
 		return arr
 
 	result = foo()
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == [1, 2, 3]
-	assert_has(text, "Added [1, 2, 3] to arr")
-	assert_no_internal_leaks(text)
+	assert_has(out, "Added [1, 2, 3] to arr")
+	assert_no_internal_leaks(out)
 
 
-def test_no_set_prefix(out):
+def test_no_set_prefix(capsys):
 	@log(mode="edu")
 	def foo():
 		x = 10
 		return x
 
 	result = foo()
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == 10
-	assert_not_has(text, "(set)")
-	assert "Defined foo = 10" in text or "x = 10" in text or "foo.x = 10" in text, (
-		f"Expected variable assignment in:\n{text}"
+	assert_not_has(out, "(set)")
+	assert "Defined foo = 10" in out or "x = 10" in out or "foo.x = 10" in out, (
+		f"Expected variable assignment in:\n{out}"
 	)
-	assert_no_internal_leaks(text)
+	assert_no_internal_leaks(out)
 
 
-def test_variable_visible(out):
+def test_variable_visible(capsys):
 	@log(mode="edu")
 	def foo():
 		x = 42
 		return x
 
 	result = foo()
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == 42
-	assert_has(text, "x = 42")
-	assert_no_internal_leaks(text)
+	assert_has(out, "x = 42")
+	assert_no_internal_leaks(out)
 
 
-def test_log_inside_function_inherits_mode(out):
+def test_log_inside_function_inherits_mode(capsys):
 	@log(mode="edu")
 	def foo():
 		x = 5
@@ -172,41 +175,41 @@ def test_log_inside_function_inherits_mode(out):
 		return x
 
 	result = foo()
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == 5
-	assert_has(text, "Value is 5")
-	assert_not_has(text, "test_")
-	assert_no_internal_leaks(text)
+	assert_has(out, "Value is 5")
+	assert_not_has(out, "test_")
+	assert_no_internal_leaks(out)
 
 
-def test_no_file_info(out):
+def test_no_file_info(capsys):
 	@log(mode="edu")
 	def foo():
 		x = 1
 		return x
 
 	result = foo()
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == 1
-	assert_not_has(text, ".py:")
-	assert_no_internal_leaks(text)
+	assert_not_has(out, ".py:")
+	assert_no_internal_leaks(out)
 
 
-def test_time_present(out):
+def test_time_present(capsys):
 	@log(mode="edu")
 	def foo():
 		pass
 
 	foo()
-	text = out()
+	out, ls = capture(capsys)
 
-	assert "[" in text and "s]" in text
-	assert_no_internal_leaks(text)
+	assert "[" in out and "s]" in out
+	assert_no_internal_leaks(out)
 
 
-def test_algorithm_like_flow(out):
+def test_algorithm_like_flow(capsys):
 	@log(mode="edu")
 	def simple():
 		arr = []
@@ -217,58 +220,55 @@ def test_algorithm_like_flow(out):
 		return arr
 
 	result = simple()
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == [3, 1, 2]
-	assert_has(text, "Added 3 to the end of arr")
-	assert_has(text, "Added 1 to the end of arr")
-	assert_has(text, "Added 2 to arr")
-	assert_has(text, "Final: [3, 1, 2]")
-	assert_no_internal_leaks(text)
+	assert_has(out, "Added 3 to the end of arr")
+	assert_has(out, "Added 1 to the end of arr")
+	assert_has(out, "Added 2 to arr")
+	assert_has(out, "Final: [3, 1, 2]")
+	assert_no_internal_leaks(out)
 
 
-def test_global_mode_full(out):
+def test_global_mode_full(capsys):
 	set_mode("full")
 	try:
-
 		@log
 		def foo():
 			return 1
 
 		result = foo()
-		text = out()
+		out, ls = capture(capsys)
 
 		assert result == 1
-		assert_has(text, "(call)")
-		assert_not_has(text, "Calling")
-		assert_no_internal_leaks(text)
+		assert_has(out, "(call)")
+		assert_not_has(out, "Calling")
+		assert_no_internal_leaks(out)
 	finally:
 		set_mode("full")
 
 
-def test_global_mode_edu(out):
+def test_global_mode_edu(capsys):
 	set_mode("edu")
 	try:
-
 		@log
 		def foo():
 			return 1
 
 		result = foo()
-		text = out()
+		out, ls = capture(capsys)
 
 		assert result == 1
-		assert_has(text, "Calling foo()")
-		assert_not_has(text, "(call)")
-		assert_no_internal_leaks(text)
+		assert_has(out, "Calling foo()")
+		assert_not_has(out, "(call)")
+		assert_no_internal_leaks(out)
 	finally:
 		set_mode("full")
 
 
-def test_mode_toggle_mid_execution(out):
+def test_mode_toggle_mid_execution(capsys):
 	set_mode("full")
 	try:
-
 		@log
 		def foo():
 			a = 1  # full mode
@@ -279,18 +279,18 @@ def test_mode_toggle_mid_execution(out):
 			return a + b + c
 
 		result = foo()
-		text = out()
+		out, ls = capture(capsys)
 
 		assert result == 6
-		assert_has(text, "(set)")
-		assert_has(text, "b = 2")
-		assert_has(text, "c = 3")
-		assert_no_internal_leaks(text)
+		assert_has(out, "(set)")
+		assert_has(out, "b = 2")
+		assert_has(out, "c = 3")
+		assert_no_internal_leaks(out)
 	finally:
 		set_mode("full")
 
 
-def test_default_arg_emitted_once(out):
+def test_default_arg_emitted_once(capsys):
 	@log(mode="edu")
 	def outer():
 		def inner(x=10):
@@ -300,16 +300,16 @@ def test_default_arg_emitted_once(out):
 		return inner()
 
 	result = outer()
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == 20
-	assert_has(text, "Defined outer.inner(x=10)")
-	assert_has(text, "x = 10")
-	assert_has(text, "x = 20")
-	assert_no_internal_leaks(text)
+	assert_has(out, "Defined outer.inner(x=10)")
+	assert_has(out, "x = 10")
+	assert_has(out, "x = 20")
+	assert_no_internal_leaks(out)
 
 
-def test_nested_function_locals_are_tracked(out):
+def test_nested_function_locals_are_tracked(capsys):
 	@log(mode="edu")
 	def outer():
 		def inner(var="test"):
@@ -319,16 +319,12 @@ def test_nested_function_locals_are_tracked(out):
 		return inner()
 
 	result = outer()
-	text = out()
+	out, ls = capture(capsys)
 
 	assert result == 5
-	assert_has(text, "var = 'test'")
-	assert_has(text, "var = 42")
-	assert_has(text, "Calling outer.inner()")
-	assert_has(text, "Defined outer.inner(var='test')")
-	assert_not_has(text, "Defined outer.inner()")
-	assert_no_internal_leaks(text)
-
-
-def lines_from_text(text):
-	return [line.strip() for line in text.splitlines() if line.strip()]
+	assert_has(out, "var = 'test'")
+	assert_has(out, "var = 42")
+	assert_has(out, "Calling outer.inner()")
+	assert_has(out, "Defined outer.inner(var='test')")
+	assert_not_has(out, "Defined outer.inner()")
+	assert_no_internal_leaks(out)
