@@ -158,6 +158,16 @@ def _wrap_value(
 	- already wrapped -> returned as-is
 	"""
 
+	if callable(value):
+		return value
+
+	if isinstance(value, _BaseLogged):
+		return value
+
+	# No tracking for plain scalars
+	if isinstance(value, (str, bytes, int, float, bool, complex, type(None))):
+		return value
+
 	if seen is None:
 		seen = set()
 
@@ -166,17 +176,11 @@ def _wrap_value(
 	# Break the cycle immediately!!!
 	# We have entered a recursive object call!
 	if obj_id in seen:
-		return "<recursive self>"  # Can also be value
+		return "<recursive self>"  # Can also be value ?
 
 	seen.add(obj_id)
 
 	safe_name = name or "NO_NAME_ERR"
-
-	if callable(value):
-		return value
-
-	if isinstance(value, _BaseLogged):
-		return value
 
 	if isinstance(value, dict):
 		return LoggedDict(value, name=safe_name, _seen=seen)
