@@ -67,6 +67,26 @@ def _format_change_payload(
 	return None
 
 
+def _format_call_payload(args: tuple[object, ...], kwargs: dict[str, object]) -> str:
+	parts = []
+
+	# TODO: What should we do here? cleaner display or more info?
+
+	if args:
+		parts.append(f"args=({', '.join(repr(a) for a in args)})")
+	else:
+		# parts.append("args=()")
+		pass
+
+	if kwargs:
+		parts.append(f"kwargs={kwargs!r}")
+	else:
+		# parts.append("kwargs={}")
+		pass
+
+	return " | ".join(parts)
+
+
 def _default_formatter(
 	elapsed: float,
 	kind: Kind,
@@ -236,19 +256,10 @@ def _default_formatter(
 		args = value.get("args", ())
 		kwargs = value.get("kwargs", {})
 
-		payload_parts = []
-
-		if args:
-			payload_parts.append(f"args={args!r}")
-
-		if kwargs:
-			payload_parts.append(f"kwargs={kwargs!r}")
-
-		payload_str = "{" + ", ".join(payload_parts) + "}" if payload_parts else ""
-
 		func_name = _display_name(name)
+		payload_str = _format_call_payload(args, kwargs)
 
-		return f"{prefix}({kind}) {func_name} {payload_str} -> {result!r}".rstrip()
+		return f"{prefix}({kind}) {func_name} {payload_str} -> {result!r}"
 
 	if kind == "call" and isinstance(value, dict):
 		args = value.get("args", ())
@@ -262,18 +273,7 @@ def _default_formatter(
 				args = args[1:]
 
 		func_name = _display_name(name)
-
-		payload_parts = []
-
-		if args:
-			arg_str = ", ".join(repr(a) for a in args)
-			arg_str = f"({arg_str})"
-			payload_parts.append(f"args={arg_str}")
-
-		if kwargs:
-			payload_parts.append(f"kwargs={kwargs!r}")
-
-		payload_str = "{" + ", ".join(payload_parts) + "}" if payload_parts else ""
+		payload_str = _format_call_payload(args, kwargs)
 
 		if target:
 			return f"{prefix}({kind}) {target} <- {func_name} {payload_str}".rstrip()
