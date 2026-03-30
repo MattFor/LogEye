@@ -37,13 +37,13 @@ add_edu(2, 3)
 Output:
 
 ```commandline
-[0.000s] playground.py:7 (call) add = {'args': (2, 3), 'kwargs': {}}
+[0.000s] playground.py:7 (call) add args=(2, 3)
 [0.000s] playground.py:5 (set) add.a = 2
 [0.000s] playground.py:5 (set) add.b = 3
-[0.000s] playground.py:5 (return) add = 5
+[0.000s] playground.py:5 (return) add args=(2, 3) -> 5
 [0.000s] Calling add_edu(2, 3)
-[0.000s] a = 2
-[0.000s] b = 3
+[0.000s] Defined add_edu.a = 2
+[0.000s] Defined add_edu.b = 3
 [0.000s] add_edu(2, 3) returned 5
 ```
 
@@ -128,13 +128,13 @@ Example output:
 
 ```commandline
 [0.000s] playground.py:3 (set) x = 10
-[0.000s] playground.py:4 (set) message = 'Hello from Matt'
-[0.000s] playground.py:13 (call) add = {'args': (2, 2), 'kwargs': {}}
-[0.000s] playground.py:10 (return) add = 4
-[0.000s] playground.py:16 (set) message2 = 'Hello from Matt'
-[0.001s] playground.py:18 (set) config = {'debug': True, 'port': 8080}
-[0.001s] playground.py:19 (set) config.port = 9090
-[0.001s] playground.py:20 (set) config.debug = False
+[0.024s] playground.py:4 (set) message = 'Hello from Matt'
+[0.026s] playground.py:13 (call) add args=(2, 2)
+[0.026s] playground.py:10 (return) add args=(2, 2) -> 4
+[0.026s] playground.py:16 (set) message2 = 'Hello from Matt'
+[0.027s] playground.py:18 (set) config = {'debug': True, 'port': 8080}
+[0.027s] playground.py:19 (change) config.port = 9090
+[0.027s] playground.py:20 (change) config.debug = False
 ```
 
 # Educational Mode!
@@ -168,13 +168,15 @@ def my_function():
 ### Default mode
 
 ```text
-[0.000s] (call) factorial = {'args': (5,), 'kwargs': {}}
-[0.000s] (set) factorial.n = 5
-[0.000s] (set) factorial.result = 1
-[0.000s] (set) factorial.i = 1
-[0.000s] (set) factorial.result = 2
+[0.000s] demo_dijkstra.py:36 (call) dijkstra args=({'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}, 'A')
+[0.001s] demo_dijkstra.py:8 (set) dijkstra.graph = {'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}
+[0.001s] demo_dijkstra.py:8 (set) dijkstra.start = 'A'
+[0.001s] demo_dijkstra.py:8 (set) dijkstra.node = 'A'
+[0.001s] demo_dijkstra.py:8 (change) dijkstra.node = 'B'
 ...
-[0.001s] (return) factorial = 120
+[0.005s] demo_dijkstra.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (6, 'D'), 'state': []}
+[0.005s] demo_dijkstra.py:17 (change) dijkstra.current_dist = 6
+[0.005s] demo_dijkstra.py:31 (return) dijkstra args=({'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}, 'A') -> {'A': 0, 'B': 1, 'C': 3, 'D': 4}
 ```
 
 ---
@@ -182,21 +184,64 @@ def my_function():
 ### Educational mode
 
 ```text
-[0.000s] Calling factorial(5)
-[0.000s] n = 5
-[0.000s] Calling factorial#2(4)
-[0.000s] n = 4
-[0.000s] Calling factorial#3(3)
-[0.000s] n = 3
-[0.000s] Calling factorial#4(2)
-[0.000s] n = 2
-[0.000s] Calling factorial#5(1)
-[0.000s] n = 1
-[0.000s] factorial#5(1) returned 1
-[0.000s] factorial#4(2) returned 2
-[0.000s] factorial#3(3) returned 6
-[0.000s] factorial#2(4) returned 24
-[0.001s] factorial(5) returned 120
+[0.001s] Calling dijkstra({'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}, 'A')
+[0.001s] Defined dijkstra.graph = {'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}
+[0.001s] Defined dijkstra.start = 'A'
+[0.001s] Defined dijkstra.node = 'A'
+[0.001s] dijkstra.node = 'B'
+[0.001s] dijkstra.node = 'C'
+[0.001s] dijkstra.node = 'D'
+[0.001s] Defined dijkstra.distances = {'A': inf, 'B': inf, 'C': inf, 'D': inf}
+[0.001s] set A = 0 -> {'A': 0, 'B': inf, 'C': inf, 'D': inf}
+[0.001s] Defined dijkstra.visited = set()
+[0.001s] Defined dijkstra.queue = [(0, 'A')]
+[0.001s] dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (0, 'A'), 'state': []}
+[0.001s] dijkstra.node = 'A'
+[0.001s] Defined dijkstra.current_dist = 0
+[0.001s] dijkstra.visited = {'op': 'add', 'value': 'A', 'state': {'A'}}
+[0.002s] Defined dijkstra.neighbor = 'B'
+[0.002s] Defined dijkstra.weight = 1
+[0.002s] Defined dijkstra.new_dist = 1
+[0.002s] set B = 1 -> {'A': 0, 'B': 1, 'C': inf, 'D': inf}
+[0.002s] Added (1, 'B') to the end of queue
+[0.002s] dijkstra.neighbor = 'C'
+[0.002s] dijkstra.weight = 4
+[0.002s] dijkstra.new_dist = 4
+[0.002s] set C = 4 -> {'A': 0, 'B': 1, 'C': 4, 'D': inf}
+[0.002s] Added (4, 'C') to the end of queue
+[0.002s] dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(1, 'B'), (4, 'C')]}
+[0.003s] dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (1, 'B'), 'state': [(4, 'C')]}
+[0.003s] dijkstra.node = 'B'
+[0.003s] dijkstra.current_dist = 1
+[0.003s] dijkstra.visited = {'op': 'add', 'value': 'B', 'state': {'B', 'A'}}
+[0.003s] dijkstra.weight = 2
+[0.003s] dijkstra.new_dist = 3
+[0.003s] set C = 3 -> {'A': 0, 'B': 1, 'C': 3, 'D': inf}
+[0.003s] Added (3, 'C') to the end of queue
+[0.003s] dijkstra.neighbor = 'D'
+[0.003s] dijkstra.weight = 5
+[0.003s] dijkstra.new_dist = 6
+[0.003s] set D = 6 -> {'A': 0, 'B': 1, 'C': 3, 'D': 6}
+[0.004s] Added (6, 'D') to the end of queue
+[0.004s] dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(3, 'C'), (4, 'C'), (6, 'D')]}
+[0.004s] dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (3, 'C'), 'state': [(4, 'C'), (6, 'D')]}
+[0.004s] dijkstra.node = 'C'
+[0.004s] dijkstra.current_dist = 3
+[0.004s] dijkstra.visited = {'op': 'add', 'value': 'C', 'state': {'B', 'C', 'A'}}
+[0.004s] dijkstra.weight = 1
+[0.004s] dijkstra.new_dist = 4
+[0.004s] set D = 4 -> {'A': 0, 'B': 1, 'C': 3, 'D': 4}
+[0.004s] Added (4, 'D') to the end of queue
+[0.004s] dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(4, 'C'), (4, 'D'), (6, 'D')]}
+[0.005s] dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (4, 'C'), 'state': [(4, 'D'), (6, 'D')]}
+[0.005s] dijkstra.current_dist = 4
+[0.005s] dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (4, 'D'), 'state': [(6, 'D')]}
+[0.005s] dijkstra.node = 'D'
+[0.005s] dijkstra.visited = {'op': 'add', 'value': 'D', 'state': {'B', 'C', 'A', 'D'}}
+[0.005s] dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(6, 'D')]}
+[0.005s] dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (6, 'D'), 'state': []}
+[0.006s] dijkstra.current_dist = 6
+[0.006s] dijkstra({'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}, 'A') returned {'A': 0, 'B': 1, 'C': 3, 'D': 4}
 ```
 
 ## What changes in educational mode
@@ -244,20 +289,20 @@ Output:
 ```text
 [0.000s] FACTORIAL
 [0.000s] Calling factorial(5)
-[0.000s] n = 5
-[0.000s] Calling factorial#2(4)
-[0.000s] n = 4
-[0.000s] Calling factorial#3(3)
-[0.000s] n = 3
-[0.000s] Calling factorial#4(2)
-[0.000s] n = 2
-[0.000s] Calling factorial#5(1)
-[0.001s] n = 1
-[0.001s] factorial#5(1) returned 1
-[0.001s] factorial#4(2) returned 2
-[0.001s] factorial#3(3) returned 6
-[0.001s] factorial#2(4) returned 24
-[0.001s] factorial(5) returned 120
+[0.000s] Defined factorial.n = 5
+[0.001s] Calling factorial#2(4)
+[0.001s] Defined factorial#2.n = 4
+[0.002s] Calling factorial#3(3)
+[0.002s] Defined factorial#3.n = 3
+[0.002s] Calling factorial#4(2)
+[0.003s] Defined factorial#4.n = 2
+[0.003s] Calling factorial#5(1)
+[0.003s] Defined factorial#5.n = 1
+[0.003s] factorial#5(1) returned 1
+[0.003s] factorial#4(2) returned 2
+[0.003s] factorial#3(3) returned 6
+[0.003s] factorial#2(4) returned 24
+[0.003s] factorial(5) returned 120
 ```
 
 It’s especially useful for:
