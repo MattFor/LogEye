@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.5.1] - 2026-03-30
+
+### Fixed
+
+* _infer_name_from_frame incorrectly returning "set" as a default option when literally nothing is found,   
+    instead it now returns None so that the pipe operator single messages work correctly,  
+    also adjusted the default to be PLACEHOLDER and not "set" to avoid confusion
+* Fixed incorrect self-referencing of basic types
+
+### Changed
+
+* Updated examples
+* Better formatting in educational mode
+* Better formatting in code
+
+
 ## [1.5.0] - 2026-03-27
 
 ### Added

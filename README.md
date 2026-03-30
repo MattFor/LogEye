@@ -4,7 +4,7 @@
 
 # LogEye
 
-Understand exactly what your code is doing in real time, no debugger needed.  
+**Understand exactly what your code is doing in real time, no debugger needed.**
 
 LogEye is a frictionless runtime logger for Python that shows variable changes, function calls, and data mutations as
 they happen.
@@ -49,13 +49,14 @@ Output:
 
 # Table of Contents
 
-- [Who is it for](#who-is-it-for)
-- [What does it do](#what-does-it-do)
+- [Who is it for?](#who-is-it-for)
+- [What does it do?](#what-does-it-do)
+  - [What exactly does it track?](#what-exactly-does-it-track) 
 - [Quick start](#quick-start)
 - [Educational Mode](#educational-mode)
-    - [Before vs After](#before-vs-after)
-    - [What changes in educational mode](#what-changes-in-educational-mode)
-    - [Example - Educational Factorial](#example---educational-factorial)
+  - [Before vs After](#before-vs-after)
+  - [What changes in educational mode](#what-changes-in-educational-mode)
+  - [Example - Educational Factorial](#example---educational-factorial)
 - [Logging functions](#logging-functions)
 - [Advanced function logging](#advanced-function-logging)
 - [Logging objects](#logging-objects)
@@ -68,7 +69,7 @@ Output:
 - [Contact](#contact)
 - [License](#license)
 
-## Who is it for
+## Who is it for?
 
 LogEye helps you see how your code executes step by step.
 
@@ -78,9 +79,22 @@ Perfect for:
 - students studying algorithms
 - teachers explaining concepts
 
-No more scattered `print()` calls. No debugger setup. Just run your code and see everything.
+No more scattered `print()` calls. No debugger setup. Simply run your code and see everything.
 
-## What does it do
+Why keep doing this?
+```python
+print(x)
+print(y)
+print(queue)
+```
+When a single `| l` suffices?
+```commandline
+Added (1, 'B') to queue -> [(1, 'B')]
+Sorted queue -> [(1, 'B'), (4, 'C')]
+Popped (1, 'B') from queue
+```
+
+## What does it do?
 
 Core features:
 
@@ -99,6 +113,17 @@ Advanced features:
 
 However, keep in mind that name inference is best-effort and may not be accurate in some more extreme cases.
 
+### What exactly does it track?
+
+Without changing your code, LogEye shows:
+
+- function calls and returns
+- local variables inside functions
+- object attribute changes
+- list / dict / set mutations
+- nested structures
+- recursion and call depth
+
 ## Quick start
 
 ```python
@@ -110,7 +135,7 @@ message = log("Hello from {name}", name="Matt")
 
 @log(level="call")
 def add(a, b):
-	something = 2 + 2
+	something = 2 + 2  # Unused
 	return a + b
 
 
@@ -172,7 +197,6 @@ def my_function():
 [0.001s] demo_dijkstra.py:8 (set) dijkstra.graph = {'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}
 [0.001s] demo_dijkstra.py:8 (set) dijkstra.start = 'A'
 [0.001s] demo_dijkstra.py:8 (set) dijkstra.node = 'A'
-[0.001s] demo_dijkstra.py:8 (change) dijkstra.node = 'B'
 ...
 [0.005s] demo_dijkstra.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (6, 'D'), 'state': []}
 [0.005s] demo_dijkstra.py:17 (change) dijkstra.current_dist = 6
@@ -184,64 +208,15 @@ def my_function():
 ### Educational mode
 
 ```text
-[0.001s] Calling dijkstra({'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}, 'A')
+[0.000s] demo_dijkstra.py:3 DIJKSTRA - SHORTEST PATH
+[0.000s] Calling dijkstra({'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}, 'A')
 [0.001s] Defined dijkstra.graph = {'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}
 [0.001s] Defined dijkstra.start = 'A'
-[0.001s] Defined dijkstra.node = 'A'
-[0.001s] dijkstra.node = 'B'
-[0.001s] dijkstra.node = 'C'
-[0.001s] dijkstra.node = 'D'
-[0.001s] Defined dijkstra.distances = {'A': inf, 'B': inf, 'C': inf, 'D': inf}
-[0.001s] set A = 0 -> {'A': 0, 'B': inf, 'C': inf, 'D': inf}
-[0.001s] Defined dijkstra.visited = set()
-[0.001s] Defined dijkstra.queue = [(0, 'A')]
-[0.001s] dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (0, 'A'), 'state': []}
-[0.001s] dijkstra.node = 'A'
-[0.001s] Defined dijkstra.current_dist = 0
-[0.001s] dijkstra.visited = {'op': 'add', 'value': 'A', 'state': {'A'}}
-[0.002s] Defined dijkstra.neighbor = 'B'
-[0.002s] Defined dijkstra.weight = 1
-[0.002s] Defined dijkstra.new_dist = 1
-[0.002s] set B = 1 -> {'A': 0, 'B': 1, 'C': inf, 'D': inf}
-[0.002s] Added (1, 'B') to the end of queue
-[0.002s] dijkstra.neighbor = 'C'
-[0.002s] dijkstra.weight = 4
-[0.002s] dijkstra.new_dist = 4
-[0.002s] set C = 4 -> {'A': 0, 'B': 1, 'C': 4, 'D': inf}
-[0.002s] Added (4, 'C') to the end of queue
-[0.002s] dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(1, 'B'), (4, 'C')]}
-[0.003s] dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (1, 'B'), 'state': [(4, 'C')]}
-[0.003s] dijkstra.node = 'B'
-[0.003s] dijkstra.current_dist = 1
-[0.003s] dijkstra.visited = {'op': 'add', 'value': 'B', 'state': {'B', 'A'}}
-[0.003s] dijkstra.weight = 2
-[0.003s] dijkstra.new_dist = 3
-[0.003s] set C = 3 -> {'A': 0, 'B': 1, 'C': 3, 'D': inf}
-[0.003s] Added (3, 'C') to the end of queue
-[0.003s] dijkstra.neighbor = 'D'
-[0.003s] dijkstra.weight = 5
-[0.003s] dijkstra.new_dist = 6
-[0.003s] set D = 6 -> {'A': 0, 'B': 1, 'C': 3, 'D': 6}
-[0.004s] Added (6, 'D') to the end of queue
-[0.004s] dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(3, 'C'), (4, 'C'), (6, 'D')]}
-[0.004s] dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (3, 'C'), 'state': [(4, 'C'), (6, 'D')]}
-[0.004s] dijkstra.node = 'C'
-[0.004s] dijkstra.current_dist = 3
-[0.004s] dijkstra.visited = {'op': 'add', 'value': 'C', 'state': {'B', 'C', 'A'}}
-[0.004s] dijkstra.weight = 1
-[0.004s] dijkstra.new_dist = 4
-[0.004s] set D = 4 -> {'A': 0, 'B': 1, 'C': 3, 'D': 4}
-[0.004s] Added (4, 'D') to the end of queue
-[0.004s] dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(4, 'C'), (4, 'D'), (6, 'D')]}
-[0.005s] dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (4, 'C'), 'state': [(4, 'D'), (6, 'D')]}
-[0.005s] dijkstra.current_dist = 4
-[0.005s] dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (4, 'D'), 'state': [(6, 'D')]}
-[0.005s] dijkstra.node = 'D'
-[0.005s] dijkstra.visited = {'op': 'add', 'value': 'D', 'state': {'B', 'C', 'A', 'D'}}
-[0.005s] dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(6, 'D')]}
-[0.005s] dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (6, 'D'), 'state': []}
-[0.006s] dijkstra.current_dist = 6
-[0.006s] dijkstra({'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}, 'A') returned {'A': 0, 'B': 1, 'C': 3, 'D': 4}
+...
+[0.004s] Sorted queue -> [(6, 'D')]
+[0.005s] Popped (6, 'D') from queue
+[0.005s] dijkstra.current_dist = 6
+[0.005s] dijkstra({'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}, 'A') returned {'A': 0, 'B': 1, 'C': 3, 'D': 4}
 ```
 
 ## What changes in educational mode
@@ -330,11 +305,11 @@ add(2, 3)
 ```
 
 ```commandline
-[0.001s] demo9.py:17 (call) add = {'args': (2, 3), 'kwargs': {}}
-[0.001s] demo9.py:13 (set) add.a = 2
-[0.001s] demo9.py:13 (set) add.b = 3
-[0.001s] demo9.py:14 (set) add.total = 5
-[0.001s] demo9.py:14 (return) add = 5
+[0.000s] playground.py:10 (call) add args=(2, 3)
+[0.000s] playground.py:6 (set) add.a = 2
+[0.000s] playground.py:6 (set) add.b = 3
+[0.000s] playground.py:7 (set) add.total = 5
+[0.000s] playground.py:7 (return) add args=(2, 3) -> 5
 ```
 
 This will log:
@@ -433,11 +408,10 @@ user.name = "For"
 ```
 
 ```commandline
-[0.001s] demo8.py:11 (call) User.__init__ = {'args': (<__main__.User object at 0x7fbacb1f0980>,), 'kwargs': {}}
-[0.001s] demo8.py:7 (set) user.name = 'Matt'
-[0.001s] demo8.py:8 (set) user.active = True
-[0.001s] demo8.py:11 (set) user = {}
-[0.001s] demo8.py:12 (set) user.name = 'For'
+[0.000s] playground.py:11 (call) user <- User.__init__
+[0.000s] playground.py:7 (set) user.name = 'Matt'
+[0.000s] playground.py:8 (set) user.active = True
+[0.000s] playground.py:12 (change) user.name = 'For'
 ```
 
 ## Messages
@@ -529,9 +503,228 @@ To disable: `toggle_global_log_file(False)`
 
 # Some Usage Examples
 
+<details> 
+
+<summary><strong>Example 1: Master Demo, a bit of everything</strong></summary>
+
 <details>
 
-<summary><strong>Example 1: Factorial</strong></summary>
+### Code
+
+```python
+from logeye import (
+	log,
+	l,
+	set_path_mode,
+	toggle_logs,
+	reset_output_formatter,
+	set_output_formatter,
+)
+
+log("=== BASIC MESSAGES ===", show_time=False, show_file=False, show_lineno=False)
+
+x = 5
+log("value is {}", x)
+log("value via template: $x")
+log("file absolute: $apath")
+log("file relative: $rpath")
+log("file name: $fpath")
+
+log("\n=== ASSIGNMENTS ===", show_time=False, show_file=False, show_lineno=False)
+
+a = log(10)
+b = l(20)
+c = 30 | l
+
+# tuple unpacking
+d, e = log("hello"), log("world")
+
+log("\n=== EXPRESSIONS ===", show_time=False, show_file=False, show_lineno=False)
+
+f = (10 + 5) | l
+g = l(100 + 200)
+
+log("\n=== FUNCTIONS ===", show_time=False, show_file=False, show_lineno=False)
+
+
+@log
+def add(a, b):
+	total = a + b
+	total = total * 2
+	return total
+
+
+res = add(3, 4)
+
+log("\n=== NESTED FUNCTIONS ===", show_time=False, show_file=False, show_lineno=False)
+
+
+@log
+def outer(x):
+	def inner(y):
+		z = y + 1
+		return z
+
+	return inner(x)
+
+
+outer(10)
+
+log("\n=== LAMBDAS ===", show_time=False, show_file=False, show_lineno=False)
+
+f = lambda: log("lambda called")
+f()
+
+g = lambda v: v * 2
+g = l(g)  # wrap lambda
+g(5)
+
+log("\n=== OBJECT TRACKING ===", show_time=False, show_file=False, show_lineno=False)
+
+obj = log({"x": 1, "nested": {"y": 2}})
+
+obj.x = 10
+obj.nested.y = 20
+obj["x"] = 30
+
+log("\n=== CLASS TRACKING ===", show_time=False, show_file=False, show_lineno=False)
+
+
+@log
+class User:
+	def __init__(self, name):
+		self.name = name
+		self.active = True
+
+
+user = l(User("Matt"))
+user.name = "For"
+user.active = False
+
+log("\n=== PATH MODES ===", show_time=False, show_file=False, show_lineno=False)
+
+set_path_mode("absolute")
+log("absolute path mode")
+
+set_path_mode("project")
+log("project path mode")
+
+set_path_mode("file")
+log("file path mode")
+
+log("\n=== CUSTOM FORMATTER ===", show_time=False, show_file=False, show_lineno=False)
+
+
+def simple_formatter(elapsed, kind, name, value, filename, lineno):
+	return f"{kind.upper()} -> {name}: {value}"
+
+
+set_output_formatter(simple_formatter)
+
+x = log(123)
+log("formatted message")
+
+reset_output_formatter()
+
+log("\n=== ENABLE / DISABLE ===", show_time=False, show_file=False, show_lineno=False)
+
+log("this should appear")
+
+toggle_logs(False)
+log("this should NOT appear")
+
+toggle_logs(True)
+log("logging back on")
+
+log("\n=== MIXED USAGE ===", show_time=False, show_file=False, show_lineno=False)
+
+value = (5 | l) * (10 | l)
+log("final value is $value")
+```
+
+### Output
+
+```commandline
+=== BASIC MESSAGES ===
+[0.001s] master_demo.py:13 value is 5
+[0.002s] master_demo.py:14 value via template: 5
+[0.003s] master_demo.py:15 file absolute: /home/mattfor/Programming/Python/LogEye/demos/master_demo.py
+[0.004s] master_demo.py:16 file relative: master_demo.py
+[0.005s] master_demo.py:17 file name: master_demo.py
+
+=== ASSIGNMENTS ===
+[0.006s] master_demo.py:21 (set) a = 10
+[0.006s] master_demo.py:22 (set) b = 20
+[0.007s] master_demo.py:23 (set) c = 30
+[0.007s] master_demo.py:26 (set) d = 'hello'
+[0.008s] master_demo.py:26 (set) e = 'world'
+
+=== EXPRESSIONS ===
+[0.016s] master_demo.py:30 (set) f = 15
+[0.016s] master_demo.py:31 (set) g = 300
+
+=== FUNCTIONS ===
+[0.033s] master_demo.py:43 (call) add args=(3, 4)
+[0.033s] master_demo.py:38 (set) add.a = 3
+[0.033s] master_demo.py:38 (set) add.b = 4
+[0.033s] master_demo.py:39 (set) add.total = 7
+[0.033s] master_demo.py:40 (change) add.total = 14
+[0.033s] master_demo.py:40 (return) add args=(3, 4) -> 14
+
+=== NESTED FUNCTIONS ===
+[0.049s] master_demo.py:57 (call) outer args=(10)
+[0.050s] master_demo.py:50 (set) outer.x = 10
+[0.050s] master_demo.py:50 (call) outer.inner
+[0.050s] master_demo.py:50 (set) outer.inner = {'type': 'function', 'path': 'outer.inner', 'defaults': {'y': 10}}
+[0.050s] master_demo.py:50 (set) outer.inner.y = 10
+[0.050s] master_demo.py:52 (set) outer.inner.z = 11
+[0.050s] master_demo.py:52 (return) outer.inner args=(10) -> 11
+[0.050s] master_demo.py:54 (return) outer args=(10) -> 11
+
+=== LAMBDAS ===
+[0.058s] master_demo.py:62 (change) f = <function <lambda> at 0x7fe3a8fa7d70>
+[0.066s] master_demo.py:61 lambda called
+[0.066s] master_demo.py:65 (change) g = <function <lambda> at 0x7fe3a8fa7cc0>
+[0.066s] master_demo.py:66 (change) g = <function <lambda> at 0x7fe3a8fa7ed0>
+[0.074s] master_demo.py:66 (call) <lambda> args=(5)
+[0.074s] master_demo.py:64 (set) <lambda>.v = 5
+[0.074s] master_demo.py:64 (return) <lambda> args=(5) -> 10
+
+=== OBJECT TRACKING ===
+[0.083s] master_demo.py:70 (set) obj = {'x': 1, 'nested': {'y': 2}}
+[0.083s] master_demo.py:72 (change) obj.x = 10
+[0.083s] master_demo.py:73 (change) obj.nested.y = 20
+[0.083s] master_demo.py:74 (change) obj.x = 30
+
+=== CLASS TRACKING ===
+[0.092s] master_demo.py:86 (call) user <- User.__init__ args=('Matt')
+[0.092s] master_demo.py:82 (set) user.name = 'Matt'
+[0.093s] master_demo.py:83 (set) user.active = True
+[0.093s] master_demo.py:87 (change) user.name = 'For'
+[0.093s] master_demo.py:88 (change) user.active = False
+
+=== PATH MODES ===
+[0.109s] /home/mattfor/Programming/Python/LogEye/demos/master_demo.py:93 absolute path mode
+[0.118s] master_demo.py:96 project path mode
+[0.126s] master_demo.py:99 file path mode
+
+=== CUSTOM FORMATTER ===
+[0.134s] master_demo.py:110 (set) x = 123
+[0.143s] master_demo.py:111 formatted message
+
+=== ENABLE / DISABLE ===
+[0.159s] master_demo.py:117 this should appear
+[0.167s] master_demo.py:123 logging back on
+
+=== MIXED USAGE ===
+[0.176s] master_demo.py:127 (set) value = 5
+[0.176s] master_demo.py:127 (set) value = 10
+[0.184s] master_demo.py:128 final value is 50
+```
+
+</details>
+
+<summary><strong>Example 2: Factorial</strong></summary>
 
 ### Code
 
@@ -569,43 +762,43 @@ factorial(5)
 ## Output
 
 ```commandline
-[0.002s] demo_factorial.py:3 FACTORIAL - BY ITERATION
-[0.002s] demo_factorial.py:15 (call) factorial = {'args': (5,), 'kwargs': {}}
-[0.002s] demo_factorial.py:9 (set) factorial.n = 5
-[0.002s] demo_factorial.py:10 (set) factorial.result = 1
-[0.002s] demo_factorial.py:11 (set) factorial.i = 1
-[0.002s] demo_factorial.py:11 (set) factorial.i = 2
-[0.002s] demo_factorial.py:10 (set) factorial.result = 2
-[0.002s] demo_factorial.py:11 (set) factorial.i = 3
-[0.002s] demo_factorial.py:10 (set) factorial.result = 6
-[0.002s] demo_factorial.py:11 (set) factorial.i = 4
-[0.002s] demo_factorial.py:10 (set) factorial.result = 24
-[0.002s] demo_factorial.py:11 (set) factorial.i = 5
-[0.002s] demo_factorial.py:10 (set) factorial.result = 120
-[0.002s] demo_factorial.py:12 (return) factorial = 120
-[0.002s] demo_factorial.py:17 FACTORIAL - BY RECURRENCY
-[0.002s] demo_factorial.py:28 (call) factorial = {'args': (5,), 'kwargs': {}}
-[0.002s] demo_factorial.py:23 (set) factorial.n = 5
-[0.002s] demo_factorial.py:25 (call) factorial_2 = {'args': (4,), 'kwargs': {}}
-[0.002s] demo_factorial.py:23 (set) factorial_2.n = 4
-[0.002s] demo_factorial.py:25 (call) factorial_3 = {'args': (3,), 'kwargs': {}}
-[0.002s] demo_factorial.py:23 (set) factorial_3.n = 3
-[0.002s] demo_factorial.py:25 (call) factorial_4 = {'args': (2,), 'kwargs': {}}
-[0.002s] demo_factorial.py:23 (set) factorial_4.n = 2
-[0.002s] demo_factorial.py:25 (call) factorial_5 = {'args': (1,), 'kwargs': {}}
-[0.002s] demo_factorial.py:23 (set) factorial_5.n = 1
-[0.002s] demo_factorial.py:24 (return) factorial_5 = 1
-[0.002s] demo_factorial.py:25 (return) factorial_4 = 2
-[0.002s] demo_factorial.py:25 (return) factorial_3 = 6
-[0.002s] demo_factorial.py:25 (return) factorial_2 = 24
-[0.002s] demo_factorial.py:25 (return) factorial = 120
+[0.000s] playground.py:3 FACTORIAL - BY ITERATION
+[0.000s] playground.py:15 (call) factorial args=(5)
+[0.000s] playground.py:9 (set) factorial.n = 5
+[0.000s] playground.py:10 (set) factorial.result = 1
+[0.000s] playground.py:11 (set) factorial.i = 1
+[0.000s] playground.py:11 (change) factorial.i = 2
+[0.000s] playground.py:10 (change) factorial.result = 2
+[0.000s] playground.py:11 (change) factorial.i = 3
+[0.000s] playground.py:10 (change) factorial.result = 6
+[0.000s] playground.py:11 (change) factorial.i = 4
+[0.000s] playground.py:10 (change) factorial.result = 24
+[0.000s] playground.py:11 (change) factorial.i = 5
+[0.000s] playground.py:10 (change) factorial.result = 120
+[0.000s] playground.py:12 (return) factorial args=(5) -> 120
+[0.001s] playground.py:17 FACTORIAL - BY RECURSION
+[0.001s] playground.py:28 (call) factorial args=(5)
+[0.001s] playground.py:23 (set) factorial.n = 5
+[0.002s] playground.py:25 (call) factorial#2 args=(4)
+[0.002s] playground.py:23 (set) factorial#2.n = 4
+[0.004s] playground.py:25 (call) factorial#3 args=(3)
+[0.004s] playground.py:23 (set) factorial#3.n = 3
+[0.005s] playground.py:25 (call) factorial#4 args=(2)
+[0.005s] playground.py:23 (set) factorial#4.n = 2
+[0.006s] playground.py:25 (call) factorial#5 args=(1)
+[0.006s] playground.py:23 (set) factorial#5.n = 1
+[0.006s] playground.py:24 (return) factorial#5 args=(1) -> 1
+[0.006s] playground.py:25 (return) factorial#4 args=(2) -> 2
+[0.006s] playground.py:25 (return) factorial#3 args=(3) -> 6
+[0.006s] playground.py:25 (return) factorial#2 args=(4) -> 24
+[0.006s] playground.py:25 (return) factorial args=(5) -> 120
 ```
 
 </details> 
 
 <details> 
 
-<summary><strong>Example 2: Dijkstra</strong></summary>
+<summary><strong>Example 3: Dijkstra</strong></summary>
 
 ```python
 from logeye import log, l
@@ -654,65 +847,65 @@ dijkstra(graph, "A")
 ## Output
 
 ```commandline
-[0.000s] demo_dijkstra.py:3 DIJKSTRA - SHORTEST PATH
-[0.000s] demo_dijkstra.py:41 (call) dijkstra = {'args': ({'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}, 'A'), 'kwargs': {}}
-[0.000s] demo_dijkstra.py:8 (set) dijkstra.graph = {'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}
-[0.000s] demo_dijkstra.py:8 (set) dijkstra.start = 'A'
-[0.000s] demo_dijkstra.py:8 (set) dijkstra.node = 'A'
-[0.000s] demo_dijkstra.py:8 (set) dijkstra.node = 'B'
-[0.000s] demo_dijkstra.py:8 (set) dijkstra.node = 'C'
-[0.000s] demo_dijkstra.py:8 (set) dijkstra.node = 'D'
-[0.000s] demo_dijkstra.py:9 (set) dijkstra.distances = {'A': inf, 'B': inf, 'C': inf, 'D': inf}
-[0.000s] demo_dijkstra.py:9 (change) dijkstra.distances.A = {'op': 'setitem', 'value': 0, 'state': {'A': 0, 'B': inf, 'C': inf, 'D': inf}}
-[0.000s] demo_dijkstra.py:12 (set) dijkstra.visited = set()
-[0.000s] demo_dijkstra.py:14 (set) dijkstra.queue = [(0, 'A')]
-[0.001s] demo_dijkstra.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (0, 'A'), 'state': []}
-[0.001s] demo_dijkstra.py:17 (set) dijkstra.node = 'A'
-[0.001s] demo_dijkstra.py:17 (set) dijkstra.current_dist = 0
-[0.001s] demo_dijkstra.py:20 (change) dijkstra.visited = {'op': 'add', 'value': 'A', 'state': {'A'}}
-[0.001s] demo_dijkstra.py:23 (set) dijkstra.neighbor = 'B'
-[0.001s] demo_dijkstra.py:23 (set) dijkstra.weight = 1
-[0.001s] demo_dijkstra.py:25 (set) dijkstra.new_dist = 1
-[0.001s] demo_dijkstra.py:26 (change) dijkstra.distances.B = {'op': 'setitem', 'value': 1, 'state': {'A': 0, 'B': 1, 'C': inf, 'D': inf}}
-[0.001s] demo_dijkstra.py:27 (change) dijkstra.queue = {'op': 'append', 'value': (1, 'B'), 'state': [(1, 'B')]}
-[0.001s] demo_dijkstra.py:23 (set) dijkstra.neighbor = 'C'
-[0.001s] demo_dijkstra.py:23 (set) dijkstra.weight = 4
-[0.001s] demo_dijkstra.py:25 (set) dijkstra.new_dist = 4
-[0.001s] demo_dijkstra.py:26 (change) dijkstra.distances.C = {'op': 'setitem', 'value': 4, 'state': {'A': 0, 'B': 1, 'C': 4, 'D': inf}}
-[0.001s] demo_dijkstra.py:27 (change) dijkstra.queue = {'op': 'append', 'value': (4, 'C'), 'state': [(1, 'B'), (4, 'C')]}
-[0.001s] demo_dijkstra.py:29 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(1, 'B'), (4, 'C')]}
-[0.001s] demo_dijkstra.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (1, 'B'), 'state': [(4, 'C')]}
-[0.001s] demo_dijkstra.py:17 (set) dijkstra.node = 'B'
-[0.001s] demo_dijkstra.py:17 (set) dijkstra.current_dist = 1
-[0.001s] demo_dijkstra.py:20 (change) dijkstra.visited = {'op': 'add', 'value': 'B', 'state': {'A', 'B'}}
-[0.001s] demo_dijkstra.py:23 (set) dijkstra.weight = 2
-[0.001s] demo_dijkstra.py:25 (set) dijkstra.new_dist = 3
-[0.002s] demo_dijkstra.py:26 (change) dijkstra.distances.C = {'op': 'setitem', 'value': 3, 'state': {'A': 0, 'B': 1, 'C': 3, 'D': inf}}
-[0.002s] demo_dijkstra.py:27 (change) dijkstra.queue = {'op': 'append', 'value': (3, 'C'), 'state': [(4, 'C'), (3, 'C')]}
-[0.002s] demo_dijkstra.py:23 (set) dijkstra.neighbor = 'D'
-[0.002s] demo_dijkstra.py:23 (set) dijkstra.weight = 5
-[0.002s] demo_dijkstra.py:25 (set) dijkstra.new_dist = 6
-[0.002s] demo_dijkstra.py:26 (change) dijkstra.distances.D = {'op': 'setitem', 'value': 6, 'state': {'A': 0, 'B': 1, 'C': 3, 'D': 6}}
-[0.002s] demo_dijkstra.py:27 (change) dijkstra.queue = {'op': 'append', 'value': (6, 'D'), 'state': [(4, 'C'), (3, 'C'), (6, 'D')]}
-[0.002s] demo_dijkstra.py:29 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(3, 'C'), (4, 'C'), (6, 'D')]}
-[0.002s] demo_dijkstra.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (3, 'C'), 'state': [(4, 'C'), (6, 'D')]}
-[0.002s] demo_dijkstra.py:17 (set) dijkstra.node = 'C'
-[0.002s] demo_dijkstra.py:17 (set) dijkstra.current_dist = 3
-[0.002s] demo_dijkstra.py:20 (change) dijkstra.visited = {'op': 'add', 'value': 'C', 'state': {'C', 'A', 'B'}}
-[0.002s] demo_dijkstra.py:23 (set) dijkstra.weight = 1
-[0.002s] demo_dijkstra.py:25 (set) dijkstra.new_dist = 4
-[0.002s] demo_dijkstra.py:26 (change) dijkstra.distances.D = {'op': 'setitem', 'value': 4, 'state': {'A': 0, 'B': 1, 'C': 3, 'D': 4}}
-[0.003s] demo_dijkstra.py:27 (change) dijkstra.queue = {'op': 'append', 'value': (4, 'D'), 'state': [(4, 'C'), (6, 'D'), (4, 'D')]}
-[0.003s] demo_dijkstra.py:29 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(4, 'C'), (4, 'D'), (6, 'D')]}
-[0.003s] demo_dijkstra.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (4, 'C'), 'state': [(4, 'D'), (6, 'D')]}
-[0.003s] demo_dijkstra.py:17 (set) dijkstra.current_dist = 4
-[0.003s] demo_dijkstra.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (4, 'D'), 'state': [(6, 'D')]}
-[0.003s] demo_dijkstra.py:17 (set) dijkstra.node = 'D'
-[0.003s] demo_dijkstra.py:20 (change) dijkstra.visited = {'op': 'add', 'value': 'D', 'state': {'C', 'A', 'D', 'B'}}
-[0.003s] demo_dijkstra.py:29 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(6, 'D')]}
-[0.003s] demo_dijkstra.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (6, 'D'), 'state': []}
-[0.003s] demo_dijkstra.py:17 (set) dijkstra.current_dist = 6
-[0.003s] demo_dijkstra.py:31 (return) dijkstra = {'A': 0, 'B': 1, 'C': 3, 'D': 4}
+[0.000s] playground.py:3 DIJKSTRA - SHORTEST PATH
+[0.001s] playground.py:41 (call) dijkstra args=({'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}, 'A')
+[0.001s] playground.py:8 (set) dijkstra.graph = {'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}
+[0.001s] playground.py:8 (set) dijkstra.start = 'A'
+[0.001s] playground.py:8 (set) dijkstra.node = 'A'
+[0.001s] playground.py:8 (change) dijkstra.node = 'B'
+[0.001s] playground.py:8 (change) dijkstra.node = 'C'
+[0.001s] playground.py:8 (change) dijkstra.node = 'D'
+[0.001s] playground.py:9 (set) dijkstra.distances = {'A': inf, 'B': inf, 'C': inf, 'D': inf}
+[0.001s] playground.py:9 (change) dijkstra.distances.A = 0
+[0.002s] playground.py:12 (set) dijkstra.visited = set()
+[0.002s] playground.py:14 (set) dijkstra.queue = [(0, 'A')]
+[0.002s] playground.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (0, 'A'), 'state': []}
+[0.002s] playground.py:17 (change) dijkstra.node = 'A'
+[0.002s] playground.py:17 (set) dijkstra.current_dist = 0
+[0.002s] playground.py:20 (change) dijkstra.visited = {'op': 'add', 'value': 'A', 'state': {'A'}}
+[0.002s] playground.py:23 (set) dijkstra.neighbor = 'B'
+[0.002s] playground.py:23 (set) dijkstra.weight = 1
+[0.002s] playground.py:25 (set) dijkstra.new_dist = 1
+[0.002s] playground.py:26 (change) dijkstra.distances.B = 1
+[0.002s] playground.py:27 (change) dijkstra.queue = {'op': 'append', 'value': (1, 'B'), 'state': [(1, 'B')]}
+[0.003s] playground.py:23 (change) dijkstra.neighbor = 'C'
+[0.003s] playground.py:23 (change) dijkstra.weight = 4
+[0.003s] playground.py:25 (change) dijkstra.new_dist = 4
+[0.003s] playground.py:26 (change) dijkstra.distances.C = 4
+[0.003s] playground.py:27 (change) dijkstra.queue = {'op': 'append', 'value': (4, 'C'), 'state': [(1, 'B'), (4, 'C')]}
+[0.003s] playground.py:29 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(1, 'B'), (4, 'C')]}
+[0.003s] playground.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (1, 'B'), 'state': [(4, 'C')]}
+[0.003s] playground.py:17 (change) dijkstra.node = 'B'
+[0.003s] playground.py:17 (change) dijkstra.current_dist = 1
+[0.003s] playground.py:20 (change) dijkstra.visited = {'op': 'add', 'value': 'B', 'state': {'B', 'A'}}
+[0.003s] playground.py:23 (change) dijkstra.weight = 2
+[0.003s] playground.py:25 (change) dijkstra.new_dist = 3
+[0.003s] playground.py:26 (change) dijkstra.distances.C = 3
+[0.004s] playground.py:27 (change) dijkstra.queue = {'op': 'append', 'value': (3, 'C'), 'state': [(4, 'C'), (3, 'C')]}
+[0.004s] playground.py:23 (change) dijkstra.neighbor = 'D'
+[0.004s] playground.py:23 (change) dijkstra.weight = 5
+[0.004s] playground.py:25 (change) dijkstra.new_dist = 6
+[0.004s] playground.py:26 (change) dijkstra.distances.D = 6
+[0.004s] playground.py:27 (change) dijkstra.queue = {'op': 'append', 'value': (6, 'D'), 'state': [(4, 'C'), (3, 'C'), (6, 'D')]}
+[0.004s] playground.py:29 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(3, 'C'), (4, 'C'), (6, 'D')]}
+[0.004s] playground.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (3, 'C'), 'state': [(4, 'C'), (6, 'D')]}
+[0.004s] playground.py:17 (change) dijkstra.node = 'C'
+[0.004s] playground.py:17 (change) dijkstra.current_dist = 3
+[0.004s] playground.py:20 (change) dijkstra.visited = {'op': 'add', 'value': 'C', 'state': {'B', 'C', 'A'}}
+[0.005s] playground.py:23 (change) dijkstra.weight = 1
+[0.005s] playground.py:25 (change) dijkstra.new_dist = 4
+[0.005s] playground.py:26 (change) dijkstra.distances.D = 4
+[0.005s] playground.py:27 (change) dijkstra.queue = {'op': 'append', 'value': (4, 'D'), 'state': [(4, 'C'), (6, 'D'), (4, 'D')]}
+[0.005s] playground.py:29 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(4, 'C'), (4, 'D'), (6, 'D')]}
+[0.005s] playground.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (4, 'C'), 'state': [(4, 'D'), (6, 'D')]}
+[0.005s] playground.py:17 (change) dijkstra.current_dist = 4
+[0.005s] playground.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (4, 'D'), 'state': [(6, 'D')]}
+[0.005s] playground.py:17 (change) dijkstra.node = 'D'
+[0.006s] playground.py:20 (change) dijkstra.visited = {'op': 'add', 'value': 'D', 'state': {'B', 'C', 'D', 'A'}}
+[0.006s] playground.py:29 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(6, 'D')]}
+[0.006s] playground.py:15 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (6, 'D'), 'state': []}
+[0.006s] playground.py:17 (change) dijkstra.current_dist = 6
+[0.006s] playground.py:31 (return) dijkstra args=({'A': {'B': 1, 'C': 4}, 'B': {'C': 2, 'D': 5}, 'C': {'D': 1}, 'D': {}}, 'A') -> {'A': 0, 'B': 1, 'C': 3, 'D': 4}
 ```
 
 </details>
@@ -746,6 +939,10 @@ If you have questions, ideas, or run into issues:
 - please open an issue!
 - or email me mattfor@relaxy.xyz
 - or add me on discord @mattfor
+
+## Notable contributors
+
+- @OutSquareCapital Helped with typing and refactoring
 
 ## License
 
