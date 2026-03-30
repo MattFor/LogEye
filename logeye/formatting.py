@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import os
 
-from string import Template
-from typing import TYPE_CHECKING
 from . import config
+from string import Template
 from collections.abc import Callable
+from typing import TYPE_CHECKING, Sized, Any
 from .introspection.frames import _caller_frame, _get_location
 
 if TYPE_CHECKING:
@@ -154,7 +154,23 @@ def _default_formatter(
 					return f"{prefix}Added {val} to {short_name}"
 
 				if op == "setitem":
-					return f"{prefix}set {short_name} = {val} -> {state}"
+					return f"{prefix}Set {short_name} = {val}"
+
+				if op == "pop":
+					return f"{prefix}Popped {val} from {short_name}"
+
+				if op == "add":
+					return f"{prefix}Added {val} to {short_name}"
+
+				if op == "remove":
+					return f"{prefix}Removed {val} from {short_name}"
+
+				if op == "sort":
+					return f"{prefix}Sorted {short_name} -> {state}"
+
+				if op == "insert":
+					idx = value.get("index")
+					return f"{prefix}Inserted {val} at index {idx} in {short_name}"
 
 			if (
 				kind == "set"
