@@ -97,7 +97,9 @@ def _get_call_index_in_line(frame: FrameType):
 	return idx
 
 
-def _infer_name_from_frame(frame: FrameType | None, default: str = "set") -> str:
+def _infer_name_from_frame(
+	frame: FrameType | None, default: str = "PLACEHOLDER"
+) -> str | None:
 	"""
 	Infer variable name from a simple single-line assignment
 
@@ -136,7 +138,9 @@ def _infer_name_from_frame(frame: FrameType | None, default: str = "set") -> str
 		if isinstance(target, ast.Name):
 			return target.id
 
-	return default
+	# Name isn't found, should not be returning default!
+	# Probably a <| l> statement
+	return None
 
 
 def _infer_callsite_name(default: str = "set") -> str:

@@ -235,6 +235,7 @@ def _default_formatter(
 				return f"{prefix}{func_name}() returned {result!r}"
 
 			return f"{prefix}{value!r}"
+	# End edu mode
 
 	if kind == "message":
 		if not config._g_show_message_meta:
