@@ -1,4 +1,4 @@
-![PyPI](https://img.shields.io/pypi/v/logeye?cachebust=1774629933)
+![PyPI](https://img.shields.io/pypi/v/logeye?cachebust=1774904959)
 ![Python](https://img.shields.io/pypi/pyversions/logeye)
 ![License](https://img.shields.io/github/license/MattFor/LogEye)
 
@@ -950,5 +950,5 @@ MIT License © 2026
 
 See [LICENSE](LICENSE) for details.
 
-Version 1.5.0
+Version 1.5.1
 
