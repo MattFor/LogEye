@@ -507,8 +507,6 @@ To disable: `toggle_global_log_file(False)`
 
 <summary><strong>Example 1: Master Demo, a bit of everything</strong></summary>
 
-<details>
-
 ### Code
 
 ```python
@@ -723,6 +721,8 @@ log("final value is $value")
 ```
 
 </details>
+
+<details>
 
 <summary><strong>Example 2: Factorial</strong></summary>
 
