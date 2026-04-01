@@ -153,6 +153,7 @@ def _default_formatter(
 
 					return f"{prefix}Added {val} to {short_name}"
 
+				# NOTE: Include full name?
 				if op == "setitem":
 					return f"{prefix}Set {short_name} = {val}"
 
