@@ -6,6 +6,7 @@ from helpers import (
 	assert_line_contains,
 	assert_no_internal_leaks,
 )
+
 from logeye import log, set_mode
 
 

@@ -5,6 +5,7 @@ from logeye import log, l, watch
 # Can be edited from any branch - used for testing!
 #
 
+
 x = log(100, threshold=("relative", 0.1))
 
 x += 5

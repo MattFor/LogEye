@@ -181,12 +181,12 @@ def _install_global_trace(frame: FrameType | None = None) -> None:
 
 			value = current[name]
 
-			old = last.get(name)
-
-			if old is None and name in last:
-				old = last[name]
-			elif name not in last:
-				old = _NO_VALUE
+			old = last.get(name, _NO_VALUE)
+			#
+			# if old is None and name in last:
+			# 	old = last[name]
+			# elif name not in last:
+			# 	old = _NO_VALUE
 
 			meta = _g_watch_meta.get(frame.f_code, {}).get(name, {})
 			threshold = _resolve_threshold_for_name(name, meta.get("threshold"))
