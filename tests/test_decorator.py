@@ -1,6 +1,12 @@
 import pytest
 
-from helpers import capture, assert_has, assert_args, assert_return_value
+from helpers import (
+	capture,
+	assert_has,
+	assert_args,
+	assert_return_value
+)
+
 from logeye import log
 from functools import lru_cache, wraps
 

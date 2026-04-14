@@ -8,11 +8,12 @@ from helpers import (
 	assert_no_call_noise,
 	assert_no_return_noise,
 )
+
 from logeye import log, l
 
 
 def test_lambda_direct(capsys):
-	f = lambda: log("lambda")
+	f = lambda: log("lambda")  # noqa: E731
 
 	result = f()
 	out, ls = capture(capsys)
@@ -25,7 +26,7 @@ def test_lambda_direct(capsys):
 
 
 def test_lambda_assignment(capsys):
-	f = lambda: log("inside")
+	f = lambda: log("inside")  # noqa: E731
 	x = f()
 
 	out, ls = capture(capsys)
@@ -36,7 +37,7 @@ def test_lambda_assignment(capsys):
 
 
 def test_nested_lambda(capsys):
-	f = lambda: (lambda: log("deep"))()
+	f = lambda: (lambda: log("deep"))()  # noqa: E731
 
 	result = f()
 	out, ls = capture(capsys)
@@ -47,7 +48,7 @@ def test_nested_lambda(capsys):
 
 
 def test_lambda_returning_lambda(capsys):
-	f = lambda: lambda: log("inner")
+	f = lambda: lambda: log("inner")  # noqa: E731
 
 	inner = f()
 	result = inner()
@@ -60,7 +61,7 @@ def test_lambda_returning_lambda(capsys):
 
 
 def test_nested_lambda_assignment(capsys):
-	f = lambda: (lambda: log("nested"))()
+	f = lambda: (lambda: log("nested"))()  # noqa: E731
 
 	x = f()
 	out, ls = capture(capsys)
@@ -71,7 +72,7 @@ def test_nested_lambda_assignment(capsys):
 
 
 def test_complex_nested_lambda(capsys):
-	f = lambda: (lambda x: log(f"value {x}"))(5)
+	f = lambda: (lambda x: log(f"value {x}"))(5)  # noqa: E731
 
 	result = f()
 	out, ls = capture(capsys)
@@ -82,7 +83,7 @@ def test_complex_nested_lambda(capsys):
 
 
 def test_lambda_wrapped_call(capsys):
-	f = lambda x: x * 2
+	f = lambda x: x * 2  # noqa: E731
 	f = l(f)
 
 	result = f(3)
@@ -100,7 +101,7 @@ def test_lambda_wrapped_call(capsys):
 
 
 def test_lambda_no_duplicate_logs(capsys):
-	f = lambda: log("once")
+	f = lambda: log("once")  # noqa: E731
 
 	f()
 	out, ls = capture(capsys)
@@ -110,7 +111,7 @@ def test_lambda_no_duplicate_logs(capsys):
 
 
 def test_lambda_multiple_calls(capsys):
-	f = lambda: log("repeat")
+	f = lambda: log("repeat")  # noqa: E731
 
 	f()
 	f()
@@ -122,7 +123,7 @@ def test_lambda_multiple_calls(capsys):
 
 
 def test_lambda_argument_passthrough(capsys):
-	f = lambda x: log(x)
+	f = lambda x: log(x)  # noqa: E731
 
 	result = f(123)
 	out, ls = capture(capsys)
@@ -134,7 +135,7 @@ def test_lambda_argument_passthrough(capsys):
 
 def test_lambda_closure_capture(capsys):
 	val = "captured"
-	f = lambda: log(val)
+	f = lambda: log(val)  # noqa: E731
 
 	result = f()
 	out, ls = capture(capsys)
@@ -145,7 +146,7 @@ def test_lambda_closure_capture(capsys):
 
 
 def test_lambda_chain(capsys):
-	f = lambda: log(log("chain"))
+	f = lambda: log(log("chain"))  # noqa: E731
 
 	result = f()
 	out, ls = capture(capsys)
@@ -156,7 +157,7 @@ def test_lambda_chain(capsys):
 
 
 def test_lambda_return_value_integrity(capsys):
-	f = lambda: log(999)
+	f = lambda: log(999)  # noqa: E731
 
 	result = f()
 	out, ls = capture(capsys)
@@ -167,7 +168,7 @@ def test_lambda_return_value_integrity(capsys):
 
 
 def test_lambda_no_call_noise(capsys):
-	f = lambda: log("quiet")
+	f = lambda: log("quiet")  # noqa: E731
 
 	f()
 	out, ls = capture(capsys)
@@ -177,7 +178,7 @@ def test_lambda_no_call_noise(capsys):
 
 
 def test_lambda_multiple_variables(capsys):
-	f = lambda: (log("a"), log("b"))
+	f = lambda: (log("a"), log("b"))  # noqa: E731
 
 	result = f()
 	out, ls = capture(capsys)
@@ -189,7 +190,7 @@ def test_lambda_multiple_variables(capsys):
 
 
 def test_lambda_nested_multiple_levels(capsys):
-	f = lambda: (lambda: (lambda: log("deepest"))())()
+	f = lambda: (lambda: (lambda: log("deepest"))())()  # noqa: E731
 
 	result = f()
 	out, ls = capture(capsys)
