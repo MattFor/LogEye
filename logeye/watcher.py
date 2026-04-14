@@ -104,7 +104,7 @@ def _resolve_threshold_for_name(
 	if threshold is None:
 		return None
 
-	# Global spec applies to every watched variable.
+	# Global spec applies to every watched variable
 	if _is_single_threshold_spec(threshold):
 		return _normalize_threshold_spec(threshold)
 
@@ -118,15 +118,15 @@ def _resolve_threshold_for_name(
 
 
 def _passes_threshold(old: object, new: object, threshold: dict[str, float] | None) -> bool:
-	# First observation always emits.
+	# First observation always emits
 	if old is _NO_VALUE:
 		return True
 
-	# No threshold means normal change detection.
+	# No threshold means normal change detection
 	if threshold is None:
 		return old != new
 
-	# Thresholds only make sense for numeric values.
+	# Thresholds only make sense for numeric values
 	if not (_is_number(old) and _is_number(new)):
 		return old != new
 

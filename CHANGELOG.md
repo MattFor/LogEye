@@ -1,12 +1,61 @@
 # Changelog
 
+## [1.5.2] - 2026-04-15
+
+### Added
+
+* **Threshold-based change filtering**
+
+    * New `threshold` parameter for `log()` and `watch()` to control when changes are emitted
+    * Supports:
+
+        * Absolute thresholds:
+          ```python
+          x = log(10, threshold=5)
+          ```
+
+        * Relative thresholds:
+          ```python
+          x = log(100, threshold=("relative", 0.1))  # 10%
+          ```
+
+        * Combined thresholds:
+          ```python
+          x = log(100, threshold={"absolute": 5, "relative": 0.1})
+          ```
+
+        * Per-variable thresholds in functions:
+          ```python
+          @log(threshold={"x": ("relative", 0.2)})
+          def f():
+              x = 10
+              x += 1   # Ignored here
+              x += 3   # Emitted normally
+          ```
+
+    * Prevents noisy logs from small fluctuations
+    * Works with:
+
+        * scalar values
+        * function-local variables
+        * watched variables (`watch`)
+        * nested structures (e.g. `arr[0]`)
+
+    * First assignment always emits (`(set)`), a threshold applies only to `(change)`
+
+### Changed
+
+* Function-level tracing now integrates threshold filtering directly (no longer depends on global watcher state)
+
+---
+
 ## [1.5.1] - 2026-03-30
 
 ### Fixed
 
 * _infer_name_from_frame incorrectly returning "set" as a default option when literally nothing is found,   
-    instead it now returns None so that the pipe operator single messages work correctly,  
-    also adjusted the default to be PLACEHOLDER and not "set" to avoid confusion
+  instead it now returns None so that the pipe operator single messages work correctly,  
+  also adjusted the default to be PLACEHOLDER and not "set" to avoid confusion
 * Fixed incorrect self-referencing of basic types
 
 ### Changed
@@ -15,6 +64,7 @@
 * Better formatting in educational mode
 * Better formatting in code
 
+---
 
 ## [1.5.0] - 2026-03-27
 
@@ -91,11 +141,10 @@
 
     * Better alignment with real execution order:
 
-        * `Calling → state changes → return`
+        * `Calling -> state changes -> return`
     * More consistent variable display (`x = value`)
     * Reduced ambiguity between definition vs mutation
     * Cleaner, more predictable output for testing
-
 
 ### Changed
 
@@ -188,7 +237,6 @@
     * Currently not fully implemented in all paths
 * Upcoming feature plans are now just the sub-branches on the features/ branch.
 * Standardising and improving demos and documentation
-
 
 ---
 
