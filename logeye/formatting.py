@@ -155,7 +155,8 @@ def _default_formatter(
 
 				# NOTE: Include full name?
 				if op == "setitem":
-					return f"{prefix}Set {short_name} = {val}"
+					# return f"{prefix}Set {short_name} = {val}"
+					return f"{prefix}Set {_display_name(name)} = {val}"
 
 				if op == "pop":
 					return f"{prefix}Popped {val} from {short_name}"
