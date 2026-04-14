@@ -1,10 +1,6 @@
 import os
 
-from helpers import (
-	capture,
-	assert_has,
-	assert_not_has
-)
+from helpers import capture, assert_has, assert_not_has
 
 from logeye import log, set_path_mode, toggle_logs, toggle_decorator_log_only
 

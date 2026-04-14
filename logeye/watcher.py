@@ -26,7 +26,9 @@ def _mark_emitted(frame: FrameType, name: str) -> None:
 	_recently_emitted.add((frame.f_code, name))
 
 
-def _mark_watched(frame: FrameType, name: str, *, threshold: object | None = None) -> None:
+def _mark_watched(
+	frame: FrameType, name: str, *, threshold: object | None = None
+) -> None:
 	if not name or name == "_":
 		return
 
@@ -39,6 +41,7 @@ def _mark_watched(frame: FrameType, name: str, *, threshold: object | None = Non
 
 
 # Threshold stuff
+
 
 def _is_number(value: object) -> bool:
 	return isinstance(value, Real) and not isinstance(value, bool)
@@ -94,12 +97,14 @@ def _normalize_threshold_spec(spec: object) -> dict[str, float]:
 
 		return out
 
-	raise TypeError("threshold must be a number, a ('absolute'|'relative', value) tuple, or a mapping!")
+	raise TypeError(
+		"threshold must be a number, a ('absolute'|'relative', value) tuple, or a mapping!"
+	)
 
 
 def _resolve_threshold_for_name(
-		name: str,
-		threshold: object | None,
+	name: str,
+	threshold: object | None,
 ) -> dict[str, float] | None:
 	if threshold is None:
 		return None
@@ -117,7 +122,9 @@ def _resolve_threshold_for_name(
 	return None
 
 
-def _passes_threshold(old: object, new: object, threshold: dict[str, float] | None) -> bool:
+def _passes_threshold(
+	old: object, new: object, threshold: dict[str, float] | None
+) -> bool:
 	# First observation always emits
 	if old is _NO_VALUE:
 		return True
@@ -169,7 +176,9 @@ def _install_global_trace(frame: FrameType | None = None) -> None:
 		last = _g_last_seen.setdefault(frame.f_code, {})
 
 		for name in watched:
-			if name not in current or name == "_":  # The _ guard is for safety so even if I break something later it won't show up regardless
+			if (
+				name not in current or name == "_"
+			):  # The _ guard is for safety so even if I break something later it won't show up regardless
 				continue
 
 			# Skip if manually emitted

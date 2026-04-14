@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "logeye"
-version = "1.5.1"
+version = "1.5.2"
 description = "Frictionless runtime logging for Python variables and functions"
 readme = "README.md"
 requires-python = ">=3.10"

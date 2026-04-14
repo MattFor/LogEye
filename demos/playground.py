@@ -34,10 +34,12 @@ def simulate():
 simulate()
 
 
-@log(threshold={
-	"velocity": ("relative", 0.2),
-	"hp": ("absolute", 5),
-})
+@log(
+	threshold={
+		"velocity": ("relative", 0.2),
+		"hp": ("absolute", 5),
+	}
+)
 def update():
 	velocity = 10
 	hp = 100
@@ -67,10 +69,12 @@ arr[0] += 2  # Ignored
 arr[0] += 5  # Logged
 
 
-@log(threshold={
-	"velocity": ("relative", 0.05),
-	"position": ("absolute", 1),
-})
+@log(
+	threshold={
+		"velocity": ("relative", 0.05),
+		"position": ("absolute", 1),
+	}
+)
 def game_tick():
 	velocity = 10.0
 	position = 0.0

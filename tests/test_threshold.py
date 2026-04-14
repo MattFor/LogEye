@@ -8,7 +8,7 @@ from helpers import (
 	assert_has_return,
 	assert_line_order,
 	assert_line_count,
-	count
+	count,
 )
 
 from logeye import log, watch
@@ -157,10 +157,12 @@ def test_function_relative_threshold(capsys):
 
 
 def test_multiple_variables_threshold(capsys):
-	@log(threshold={
-		"x": ("absolute", 5),
-		"y": ("absolute", 2),
-	})
+	@log(
+		threshold={
+			"x": ("absolute", 5),
+			"y": ("absolute", 2),
+		}
+	)
 	def f():
 		x = 10
 		y = 10

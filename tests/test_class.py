@@ -1,11 +1,4 @@
-from helpers import (
-	lines,
-	count,
-	capture,
-	assert_has,
-	assert_set_order,
-	assert_line_count
-)
+from helpers import lines, count, capture, assert_has, assert_set_order, assert_line_count
 
 from logeye import log, l
 
