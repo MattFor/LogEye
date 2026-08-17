@@ -2,34 +2,39 @@ from __future__ import annotations
 
 import sys
 import inspect
+import warnings
 import functools
 
-from types import FrameType
-from collections.abc import Callable, Iterable, Mapping
-from typing import TYPE_CHECKING, Literal, TypeVar, ParamSpec, overload
+from types import CellType, CodeType, FrameType
+from dataclasses import dataclass
+from collections.abc import Callable, Generator, Iterable, Mapping
+from typing import TYPE_CHECKING, Literal, TypeVar, ParamSpec, cast, overload
 
 from . import config
 from .emmiter import _emit
-from .formatting import _format_message
+from .formatting import _format_message, _path
 from .introspection.ast import (
 	_infer_name_from_frame,
 	_get_assignment_target_for_call,
 )
 from .introspection.templates import _expand_template
 from .wrappers import (
-	_path,
 	_wrap_value,
 	LoggedSet,
 	LoggedList,
 	LoggedDict,
 	LoggedObject,
 )
-from .introspection.frames import _caller_frame, _get_location
+from .introspection.frames import (
+	_caller_frame,
+	_get_location,
+	_is_library_file,
+	_is_external_code,
+)
 from .watcher import (
-	_g_last_seen,
+	_differs,
 	_mark_emitted,
 	_mark_watched,
-	_g_watched_names,
 	_passes_threshold,
 	_recently_emitted,
 	_install_global_trace,
@@ -37,9 +42,24 @@ from .watcher import (
 )
 
 if TYPE_CHECKING:
+	from _typeshed import TraceFunction
 	from .config import Mode
 
-_NO_VALUE = object()
+_NO_VALUE: object = object()
+
+
+@dataclass
+class _CallState:
+	"""What one traced invocation needs to report its own exit"""
+
+	tracer: TraceFunction
+	name: str
+	signature: str
+	should_emit: Callable[[str, str], bool]
+
+	# Line the frame last stopped on, filled in as a generator suspends
+	exit_line: int | None = None
+
 
 T = TypeVar("T")
 K = TypeVar("K")
@@ -47,7 +67,13 @@ V = TypeVar("V")
 P = ParamSpec("P")
 
 Level = Literal["call", "state", "full"]
-Kind = Literal["change", "message", "set", "call", "return"]
+Kind = Literal["change", "message", "set", "call", "return", "raise", "yield"]
+
+# Not user logic
+_SKIPPED_NESTED_NAMES = frozenset({"currentframe", "abspath", "join", "parse"})
+
+# Set on C types, which reject attribute assignment
+_Py_TPFLAGS_IMMUTABLETYPE = 1 << 8
 
 
 def _resolve_filepath(file: str | None = None, filepath: str | None = None) -> str | None:
@@ -72,7 +98,10 @@ def _wrap_class_methods(
 	show_file: bool,
 	show_lineno: bool,
 ) -> None:
-	for attr_name, attr_value in list(cls.__dict__.items()):
+	# noinspection PyUnnecessaryCast
+	members = cast("dict[str, object]", dict(cls.__dict__))
+
+	for attr_name, attr_value in members.items():
 		if attr_name in {
 			"__module__",
 			"__doc__",
@@ -85,6 +114,8 @@ def _wrap_class_methods(
 
 		if attr_name.startswith("__") and attr_name.endswith("__"):
 			continue
+
+		wrapped: object
 
 		if isinstance(attr_value, staticmethod):
 			wrapped = staticmethod(
@@ -99,9 +130,10 @@ def _wrap_class_methods(
 				)
 			)
 		elif isinstance(attr_value, classmethod):
+			# noinspection PyUnnecessaryCast
 			wrapped = classmethod(
 				_log_function(
-					attr_value.__func__,
+					cast("classmethod[object, ..., object]", attr_value).__func__,
 					filepath=filepath,
 					level=level,
 					mode=mode,
@@ -112,7 +144,7 @@ def _wrap_class_methods(
 			)
 		elif inspect.isfunction(attr_value):
 			wrapped = _log_function(
-				attr_value,
+				cast("Callable[..., object]", attr_value),
 				filepath=filepath,
 				level=level,
 				mode=mode,
@@ -126,6 +158,39 @@ def _wrap_class_methods(
 		setattr(logged_cls, attr_name, wrapped)
 
 
+def _instance_label(instance: object) -> str:
+	return getattr(instance, "_logeye_name", None) or type(instance).__name__.lower()
+
+
+def _is_patchable(cls: type) -> bool:
+	"""C types carry Py_TPFLAGS_IMMUTABLETYPE and reject attribute assignment"""
+
+	return not cls.__flags__ & _Py_TPFLAGS_IMMUTABLETYPE
+
+
+def _user_stacklevel() -> int:
+	"""How far `warnings.warn` must climb to blame the caller's line"""
+
+	try:
+		frame = sys._getframe(1)
+	except ValueError:
+		return 1
+
+	try:
+		level = 1
+
+		while frame is not None:
+			if not _is_library_file(frame.f_code.co_filename):
+				return level
+
+			frame = frame.f_back
+			level += 1
+
+		return 1
+	finally:
+		del frame
+
+
 def _log_class(
 	cls: type,
 	*,
@@ -137,146 +202,162 @@ def _log_class(
 	show_lineno: bool = True,
 ) -> type:
 	"""
-	Wrap a class so its instances become LoggedObjects
-
-	Overrides __init__ to:
-
-	- replace `self` with a LoggedObject wrapper
-	- preserve original initialization logic
+	Instrument a class so instances report construction and attribute changes
+	Patched in place rather than subclassed, so `type(obj) is cls` keeps holding
 	"""
 
-	original_init = cls.__init__
+	if not _is_patchable(cls):
+		warnings.warn(
+			f"logeye cannot instrument the C type {cls.__qualname__!r}; it is returned unchanged",
+			RuntimeWarning,
+			stacklevel=_user_stacklevel(),
+		)
+		return cls
+
+	original_init = cast("Callable[..., None]", cls.__init__)
+	original_setattr = cast(
+		"Callable[[object, str, object], None]", cast(object, cls.__setattr__)
+	)
+	original_delattr = cast(
+		"Callable[[object, str], None]", cast(object, cls.__delattr__)
+	)
+
 	qualname = cls.__qualname__.replace(".<locals>.", ".")
 
-	class LoggedClass(cls):
-		@functools.wraps(original_init)
-		def __init__(self, *args: object, **kwargs: object):
-			if not config._g_enabled:
-				original_init(self, *args, **kwargs)
-				return
+	# __slots__ classes have nowhere to park the display name
+	supports_instance_dict = any(
+		"__dict__" in vars(base) or "__slots__" not in vars(base)
+		for base in cls.__mro__
+		if base is not object
+	)
 
-			call_frame = _caller_frame()
-			call_filename, call_lineno = _get_location(call_frame)
+	@functools.wraps(original_init)
+	def __init__(self: object, *args: object, **kwargs: object) -> None:
+		if not config._g_enabled:
+			original_init(self, *args, **kwargs)
+			return
 
-			instance_name = (
-				_get_assignment_target_for_call(call_frame) or type(self).__name__.lower()
+		call_frame = _caller_frame()
+		call_filename, call_lineno = _get_location(call_frame)
+
+		instance_name = (
+			_get_assignment_target_for_call(call_frame) or type(self).__name__.lower()
+		)
+
+		if supports_instance_dict:
+			try:
+				object.__setattr__(self, "_logeye_name", instance_name)
+			except AttributeError:
+				pass
+
+		previous = config._push_display(mode, show_time, show_file, show_lineno)
+		try:
+			_emit(
+				"call",
+				f"{qualname}.__init__",
+				{
+					"type": "class_init",
+					"class_name": qualname,
+					"target": instance_name,
+					"instance_name": instance_name,
+					"args": args,
+					"kwargs": kwargs,
+				},
+				filename=call_filename,
+				lineno=call_lineno,
+				filepath=filepath,
+				show_time=show_time,
+				show_file=show_file,
+				show_lineno=show_lineno,
 			)
+		finally:
+			config._pop_display(previous)
 
-			# Store the display name without triggering __setattr__
-			object.__setattr__(self, "_logeye_name", instance_name)
+		original_init(self, *args, **kwargs)
 
-			prev_mode = config._g_log_mode
-			config._g_log_mode = mode
+	def __setattr__(self: object, name: str, value: object) -> None:
+		is_private = name.startswith("_")
+		instance_name = _instance_label(self)
+
+		already_exists = name in getattr(self, "__dict__", ())
+
+		if value is self:
+			wrapped = value
+		else:
+			wrapped = _wrap_value(value, name=f"{instance_name}.{name}")
+
+		original_setattr(self, name, wrapped)
+
+		if not config._g_enabled or is_private and name == "_logeye_name":
+			return
+
+		frame = _caller_frame()
+		try:
+			display_value = value
+			filename, lineno = _get_location(frame)
+
+			if is_private:
+				display_value = {"type": "private", "value": value}
+
+			kind = "change" if already_exists else "set"
+
+			previous = config._push_display(mode, show_time, show_file, show_lineno)
 			try:
 				_emit(
-					"call",
-					f"{qualname}.__init__",
-					{
-						"type": "class_init",
-						"class_name": qualname,
-						"target": instance_name,
-						"instance_name": instance_name,
-						"args": args,
-						"kwargs": kwargs,
-					},
-					filename=call_filename,
-					lineno=call_lineno,
+					kind,
+					f"{instance_name}.{name}",
+					display_value,
+					filename=filename,
+					lineno=lineno,
 					filepath=filepath,
 					show_time=show_time,
 					show_file=show_file,
 					show_lineno=show_lineno,
 				)
 			finally:
-				config._g_log_mode = prev_mode
+				config._pop_display(previous)
 
-			original_init(self, *args, **kwargs)
-
-		def __setattr__(self, name: str, value: object) -> None:
-			is_private = name.startswith("_")
-			instance_name = getattr(self, "_logeye_name", type(self).__name__.lower())
-			already_exists = hasattr(self, name)
-
-			# Wrap for nested tracking, self-references as self
-			if value is self:
-				wrapped = value
-			else:
-				wrapped = _wrap_value(value, name=f"{instance_name}.{name}")
-
-			object.__setattr__(self, name, wrapped)
-
-			if not config._g_enabled:
-				return
-
-			frame = _caller_frame()
-			try:
-				display_value = value
-				filename, lineno = _get_location(frame)
-
-				if is_private:
-					display_value = {"type": "private", "value": value}
-
-				kind = "change" if already_exists else "set"
-
-				prev_mode = config._g_log_mode
-				config._g_log_mode = mode
-				try:
-					_emit(
-						kind,
-						f"{instance_name}.{name}",
-						display_value,
-						filename=filename,
-						lineno=lineno,
-						filepath=filepath,
-						show_time=show_time,
-						show_file=show_file,
-						show_lineno=show_lineno,
-					)
-				finally:
-					config._g_log_mode = prev_mode
-
+			if frame is not None:
 				_mark_emitted(frame, f"{instance_name}.{name}")
-			finally:
-				del frame
+		finally:
+			del frame
 
-		def __delattr__(self, name: str) -> None:
-			c_name = type(self).__name__.lower()
+	def __delattr__(self: object, name: str) -> None:
+		instance_name = _instance_label(self)
 
-			if not hasattr(self, name):
-				raise AttributeError(name)
+		original_delattr(self, name)
 
-			object.__delattr__(self, name)
+		if not config._g_enabled:
+			return
 
-			if not config._g_enabled:
-				return
+		frame = _caller_frame()
+		try:
+			filename, lineno = _get_location(frame)
 
-			frame = _caller_frame()
+			previous = config._push_display(mode, show_time, show_file, show_lineno)
 			try:
-				filename, lineno = _get_location(frame)
-
-				prev_mode = config._g_log_mode
-				config._g_log_mode = mode
-				try:
-					_emit(
-						"set",
-						f"{c_name}.{name}",
-						"<deleted>",
-						filename=filename,
-						lineno=lineno,
-					)
-				finally:
-					config._g_log_mode = prev_mode
-
-				_mark_emitted(frame, f"{c_name}.{name}")
+				_emit(
+					"set",
+					f"{instance_name}.{name}",
+					"<deleted>",
+					filename=filename,
+					lineno=lineno,
+					filepath=filepath,
+					show_time=show_time,
+					show_file=show_file,
+					show_lineno=show_lineno,
+				)
 			finally:
-				del frame
+				config._pop_display(previous)
 
-	LoggedClass.__name__ = cls.__name__
-	LoggedClass.__qualname__ = cls.__qualname__
-	LoggedClass.__module__ = cls.__module__
+			if frame is not None:
+				_mark_emitted(frame, f"{instance_name}.{name}")
+		finally:
+			del frame
 
 	_wrap_class_methods(
 		cls,
-		LoggedClass,
+		cls,
 		filepath=filepath,
 		level=level,
 		mode=mode,
@@ -285,60 +366,41 @@ def _log_class(
 		show_lineno=show_lineno,
 	)
 
-	return LoggedClass
+	setattr(cls, "__init__", __init__)
+	setattr(cls, "__setattr__", __setattr__)
+	setattr(cls, "__delattr__", __delattr__)
+
+	return cls
 
 
-# =====================
-# WATCH (value logging)
-# =====================
-
-
-def watch(
-	value: T,
-	name: str | None = None,
+def _emit_named_or_message(
+	name: str | None,
+	value: object,
 	*,
-	threshold: object | None = None,
-	show_time: bool = True,
-	show_file: bool = True,
-	show_lineno: bool = True,
-) -> T:
+	frame: FrameType | None,
+	filename: str | None,
+	lineno: int | None,
+	show_time: bool,
+	show_file: bool,
+	show_lineno: bool,
+) -> None:
 	"""
-	Log without changing behaviour
+	Log a value under the name it was assigned to, or as a bare message
+	A bare `log(value)` statement has no target, so there is nothing to name
 	"""
 
-	if not config._g_enabled or config._g_deco_only:
-		return value
-
-	frame = _caller_frame()
-
-	if name is None:
-		name = _infer_name_from_frame(frame)
-
-	_mark_watched(frame, name, threshold=threshold)
-	_install_global_trace(frame)
-
-	filename, lineno = _get_location(frame)
-
-	# Lambdas
-	if callable(value):
-		wrapped = _log_function(
-			value, show_time=show_time, show_file=show_file, show_lineno=show_lineno
-		)
-
+	if not name:
 		_emit(
-			"set",
-			name,
-			f"<func {_path(value)}>",
+			"message",
+			"message",
+			value,
 			filename=filename,
 			lineno=lineno,
 			show_time=show_time,
 			show_file=show_file,
 			show_lineno=show_lineno,
 		)
-
-		_mark_emitted(frame, name)
-
-		return wrapped
+		return
 
 	_emit(
 		"set",
@@ -351,8 +413,95 @@ def watch(
 		show_lineno=show_lineno,
 	)
 
-	if name:
+	if frame is not None:
 		_mark_emitted(frame, name)
+
+
+# =====================
+# WATCH (value logging)
+# =====================
+
+
+@overload
+def watch(
+	value: Callable[P, T],
+	name: str | None = ...,
+	*,
+	threshold: object | None = ...,
+	show_time: bool = ...,
+	show_file: bool = ...,
+	show_lineno: bool = ...,
+) -> Callable[P, T]: ...
+
+
+@overload
+def watch(
+	value: T,
+	name: str | None = ...,
+	*,
+	threshold: object | None = ...,
+	show_time: bool = ...,
+	show_file: bool = ...,
+	show_lineno: bool = ...,
+) -> T: ...
+
+
+def watch(
+	value: object,
+	name: str | None = None,
+	*,
+	threshold: object | None = None,
+	show_time: bool = True,
+	show_file: bool = True,
+	show_lineno: bool = True,
+) -> object:
+	"""Log without changing behaviour; callables come back wrapped, rest untouched"""
+
+	if not config._g_enabled or config._g_deco_only:
+		return value
+
+	frame = _caller_frame()
+
+	if name is None:
+		name = _infer_name_from_frame(frame)
+
+	if name and frame is not None:
+		_mark_watched(frame, name, threshold=threshold)
+		_install_global_trace(frame)
+
+	filename, lineno = _get_location(frame)
+
+	if callable(value) and not inspect.isclass(value):
+		wrapped = _log_function(
+			value,
+			show_time=show_time,
+			show_file=show_file,
+			show_lineno=show_lineno,
+		)
+
+		_emit_named_or_message(
+			name,
+			f"<func {_path(value)}>",
+			frame=frame,
+			filename=filename,
+			lineno=lineno,
+			show_time=show_time,
+			show_file=show_file,
+			show_lineno=show_lineno,
+		)
+
+		return wrapped
+
+	_emit_named_or_message(
+		name,
+		value,
+		frame=frame,
+		filename=filename,
+		lineno=lineno,
+		show_time=show_time,
+		show_file=show_file,
+		show_lineno=show_lineno,
+	)
 
 	return value
 
@@ -363,49 +512,42 @@ def watch(
 
 
 # Helpers
-def _format_call_signature(name, args, kwargs):
+def _format_call_signature(
+	name: str, args: tuple[object, ...], kwargs: Mapping[str, object]
+) -> str:
 	arg_parts = [", ".join(repr(a) for a in args)] if args else []
 	kw_parts = [", ".join(f"{k}={v!r}" for k, v in kwargs.items())] if kwargs else []
 	joined = ", ".join([p for p in arg_parts + kw_parts if p])
 	return f"{name}({joined})"
 
 
-def _shorten_name(name: str) -> str:
-	parts = [p for p in name.split(".") if not p.startswith("test_")]
-	return ".".join(parts[-2:]) if len(parts) >= 2 else parts[-1]
+def _collect_code_objects(func: object) -> set[CodeType]:
+	codes: set[CodeType] = set()
+	seen: set[int] = set()
 
-
-def _collect_code_objects(func: object) -> set[object]:
-	codes: set[object] = set()
-	seen: set[object] = set()
-
-	def walk(f):
-		if f in seen:
+	def walk(f: object) -> None:
+		if id(f) in seen:
 			return
-		seen.add(f)
+		seen.add(id(f))
 
-		# Collect this function's code
 		code = getattr(f, "__code__", None)
-		if code is not None:
+		if isinstance(code, CodeType):
 			codes.add(code)
 
-		# Unwrap decorators
-		wrapped = getattr(f, "__wrapped__", None)
+		# noinspection PyUnnecessaryCast
+		wrapped = cast(object, getattr(f, "__wrapped__", None))
 		if wrapped is not None:
 			walk(wrapped)
 
-		# TODO: Here, our way of working fails.
-		# TODO: There is no way to look inside C libs
-		# TODO: We need to find a way to get the code of the inner function
-		# TODO:  This is a problem for all the C decorators, like @lru_cache f.e
-		# TODO: I will work on it this weekend, it's going to be pretty hard to be honest
+		# lru_cache & co. expose no __code__ for settrace to attach to
 
-		# Catch closures (multi-deco support)
-		closure = getattr(f, "__closure__", None)
+		# Closures, for stacked decorators
+		# noinspection PyUnnecessaryCast
+		closure = cast("tuple[CellType, ...] | None", getattr(f, "__closure__", None))
 		if closure:
 			for cell in closure:
 				try:
-					obj = cell.cell_contents
+					obj = cast(object, cell.cell_contents)
 				except ValueError:
 					continue
 
@@ -417,8 +559,27 @@ def _collect_code_objects(func: object) -> set[object]:
 
 
 def _unwrap_callable(func: Callable[..., object]) -> Callable[..., object]:
-	unwrapped = inspect.unwrap(func)
+	unwrapped = cast(object, inspect.unwrap(func))
 	return unwrapped if callable(unwrapped) else func
+
+
+def _callable_display_name(obj: object) -> str:
+	"""Best available name for a callable, including ones carrying no __qualname__
+
+	functools.partial objects and instances of a class defining __call__ have
+	neither __qualname__ nor __name__, and used to log as an empty name.
+	"""
+	for attr in ("__qualname__", "__name__"):
+		# noinspection PyUnnecessaryCast
+		candidate = cast(object, getattr(obj, attr, None))
+		if isinstance(candidate, str) and candidate:
+			return candidate
+
+	inner = cast(object, getattr(obj, "func", None))
+	if inner is not None and callable(inner):
+		return f"partial({_callable_display_name(inner)})"
+
+	return type(obj).__qualname__
 
 
 def _log_function(
@@ -434,17 +595,13 @@ def _log_function(
 	show_lineno: bool = True,
 	show_wrapper_locals: bool = False,
 ) -> Callable[P, T]:
-	"""
-	Wrap a function to trace:
-	- calls (arguments)
-	- local variable changes
-	- return values
-
-	Uses sys.settrace to monitor execution line-by-line
-	"""
+	"""Wrap a function so sys.settrace reports its calls, locals, returns and raises"""
 
 	target_func = _unwrap_callable(func)
-	target_code = getattr(target_func, "__code__", None)
+
+	# noinspection PyUnnecessaryCast
+	raw_code = cast(object, getattr(target_func, "__code__", None))
+	target_code = raw_code if isinstance(raw_code, CodeType) else None
 
 	is_method_like = bool(
 		target_code
@@ -452,75 +609,357 @@ def _log_function(
 		and target_code.co_varnames[0] in {"self", "cls"}
 	)
 
-	func_path = getattr(
-		target_func, "__qualname__", getattr(func, "__qualname__", "")
-	).replace(".<locals>.", ".")
+	# noinspection PyUnnecessaryCast
+	qualname = cast(object, getattr(target_func, "__qualname__", None))
+	if not isinstance(qualname, str) or not qualname:
+		qualname = _callable_display_name(func)
+
+	func_path = qualname.replace(".<locals>.", ".")
+
+	allowed_codes: set[CodeType]
 
 	if show_wrapper_locals:
 		allowed_codes = _collect_code_objects(func)
 	else:
 		allowed_codes = {target_code} if target_code is not None else set()
 
+	is_generator = inspect.isgeneratorfunction(target_func)
+	is_async = inspect.iscoroutinefunction(target_func) or inspect.isasyncgenfunction(
+		target_func
+	)
+
 	call_counter = 0
 
-	@functools.wraps(func)
-	def wrapper(*args, **kwargs):
+	def _build_tracer(
+		display_call_name: str,
+		call_signature: str,
+		args: tuple[object, ...],
+		kwargs: dict[str, object],
+		should_emit: Callable[[str, str], bool],
+	) -> _CallState:
+		tracked: dict[FrameType, str] = {}
+		baseline: dict[FrameType, dict[str, object]] = {}
+		previous_line: dict[FrameType, int] = {}
+		pending_exception: dict[FrameType, object] = {}
+
+		lambda_counter = 0
+
+		def _sample_locals(frame: FrameType, frame_name: str, lineno: int) -> None:
+			code = frame.f_code
+			filename = code.co_filename
+			known = baseline[frame]
+
+			# noinspection PyUnnecessaryCast
+			locals_view = cast("dict[str, object]", frame.f_locals)
+
+			value: object
+
+			for key, value in list(locals_view.items()):
+				if key == "_":
+					continue
+
+				if key in {"self", "cls"}:
+					known[key] = value
+					continue
+
+				if is_method_like and key in code.co_varnames[: code.co_argcount]:
+					known[key] = value
+					continue
+
+				old = known.get(key, _NO_VALUE)
+
+				# Already reported by an explicit log() / watch()
+				marker = (code, key)
+				if marker in _recently_emitted:
+					_recently_emitted.discard(marker)
+					known[key] = value
+					continue
+
+				already_wrapped = isinstance(
+					value, (LoggedObject, LoggedList, LoggedDict, LoggedSet)
+				)
+
+				if not already_wrapped:
+					wrapped = _wrap_value(value, name=f"{frame_name}.{key}")
+					if wrapped is not value:
+						try:
+							locals_view[key] = wrapped
+						except (TypeError, ValueError):
+							pass
+						value = wrapped
+
+				if callable(value):
+					continue
+
+				name = f"{frame_name}.{key}"
+
+				kind: Kind
+
+				if old is _NO_VALUE:
+					kind = "set"
+				elif _differs(old, value):
+					kind = "change"
+				else:
+					continue
+
+				threshold_spec = _resolve_threshold_for_name(name, threshold)
+				if not _passes_threshold(old, value, threshold_spec):
+					continue
+
+				if should_emit(kind, name):
+					_emit(
+						kind,
+						name,
+						value,
+						filename=filename,
+						lineno=lineno,
+						filepath=filepath,
+						show_time=show_time,
+						show_file=show_file,
+						show_lineno=show_lineno,
+					)
+
+					known[key] = value
+
+		def _register(frame: FrameType, name: str) -> None:
+			# Resuming a generator re-fires "call"; keep the baseline
+			if frame in tracked:
+				return
+
+			tracked[frame] = name
+			baseline[frame] = {}
+			previous_line[frame] = frame.f_lineno
+
+		def _release(frame: FrameType) -> None:
+			_ = tracked.pop(frame, None)
+			_ = baseline.pop(frame, None)
+			_ = previous_line.pop(frame, None)
+			_ = pending_exception.pop(frame, None)
+
+		def tracer(frame: FrameType, event: str, arg: object) -> TraceFunction | None:
+			nonlocal lambda_counter
+
+			code = frame.f_code
+
+			if event == "call":
+				filename = code.co_filename
+
+				if _is_library_file(filename):
+					return None
+
+				if code in allowed_codes:
+					_register(frame, display_call_name)
+					return tracer
+
+				parent = frame.f_back
+				parent_name = tracked.get(parent) if parent is not None else None
+
+				if parent_name is None:
+					return None
+
+				# Stop at the edge of user code, the stdlib is pages of noise
+				if _is_external_code(filename):
+					return None
+
+				nested_name = code.co_name
+
+				if nested_name == "<lambda>":
+					lambda_counter += 1
+					nested_name = f"lambda#{lambda_counter}"
+					nested_full_name = f"{display_call_name}.{nested_name}"
+				else:
+					if nested_name == getattr(target_func, "__name__", None):
+						return None
+
+					if nested_name.startswith("__"):
+						return None
+
+					if nested_name in _SKIPPED_NESTED_NAMES:
+						return None
+
+					nested_full_name = f"{parent_name}.{nested_name}"
+
+				_register(frame, nested_full_name)
+
+				lineno = frame.f_lineno
+				# noinspection PyUnnecessaryCast
+				locals_snapshot = cast("dict[str, object]", frame.f_locals)
+
+				defaults = {
+					name: locals_snapshot[name]
+					for name in code.co_varnames[: code.co_argcount]
+					if name in locals_snapshot
+				}
+
+				if should_emit("call", nested_full_name):
+					_emit(
+						"call",
+						nested_full_name,
+						{"args": (), "kwargs": {}},
+						filename=filename,
+						lineno=lineno,
+						filepath=filepath,
+						show_time=show_time,
+						show_file=show_file,
+						show_lineno=show_lineno,
+					)
+
+				_emit(
+					"set",
+					nested_full_name,
+					{
+						"type": "function",
+						"path": nested_full_name,
+						"defaults": defaults,
+					},
+					filename=filename,
+					lineno=lineno,
+					filepath=filepath,
+					show_time=show_time,
+					show_file=show_file,
+					show_lineno=show_lineno,
+				)
+
+				for key, value in locals_snapshot.items():
+					if key in {"self", "cls"} or key not in code.co_varnames:
+						continue
+
+					name = f"{nested_full_name}.{key}"
+					if should_emit("set", name):
+						_emit(
+							"set",
+							name,
+							value,
+							filename=filename,
+							lineno=lineno,
+							filepath=filepath,
+							show_time=show_time,
+							show_file=show_file,
+							show_lineno=show_lineno,
+						)
+						_mark_emitted(frame, key)
+						baseline[frame][key] = value
+
+				return tracer
+
+			frame_name = tracked.get(frame)
+			if frame_name is None:
+				return None
+
+			if event == "line":
+				# More lines in this frame means it was caught here
+				_ = pending_exception.pop(frame, None)
+
+				_sample_locals(
+					frame, frame_name, previous_line.get(frame, frame.f_lineno)
+				)
+				previous_line[frame] = frame.f_lineno
+				return tracer
+
+			if event == "exception":
+				pending_exception[frame] = arg
+				return tracer
+
+			if event == "return":
+				lineno = previous_line.get(frame, frame.f_lineno)
+
+				# The final statement's values are only visible here
+				_sample_locals(frame, frame_name, lineno)
+
+				raised = pending_exception.pop(frame, None)
+
+				if raised is not None and arg is None:
+					if should_emit("raise", frame_name):
+						# An "exception" event's arg is (type, value, traceback)
+						exc_info = cast(
+							"tuple[type[BaseException], BaseException, object]", raised
+						)
+						exc_type, exc_value = exc_info[0], exc_info[1]
+
+						_emit(
+							"raise",
+							frame_name,
+							{
+								"exception": exc_value,
+								"exception_type": getattr(
+									exc_type, "__name__", str(exc_type)
+								),
+								"args": args,
+								"kwargs": kwargs,
+								"call_signature": call_signature,
+							},
+							filename=frame.f_code.co_filename,
+							lineno=lineno,
+							filepath=filepath,
+							show_time=show_time,
+							show_file=show_file,
+							show_lineno=show_lineno,
+						)
+				elif is_generator:
+					# A generator's "return" is really a yield
+					state.exit_line = lineno
+					return tracer
+				elif should_emit("return", frame_name):
+					payload: dict[str, object] = {
+						"value": arg,
+						"args": args,
+						"kwargs": kwargs,
+					}
+
+					if not is_method_like:
+						payload["call_signature"] = call_signature
+
+					_emit(
+						"return",
+						frame_name,
+						payload,
+						filename=frame.f_code.co_filename,
+						lineno=lineno,
+						filepath=filepath,
+						show_time=show_time,
+						show_file=show_file,
+						show_lineno=show_lineno,
+					)
+
+				_release(frame)
+
+			return tracer
+
+		state = _CallState(
+			tracer=tracer,
+			name=display_call_name,
+			signature=call_signature,
+			should_emit=should_emit,
+		)
+
+		return state
+
+	def _prepare(args: tuple[object, ...], kwargs: dict[str, object]) -> _CallState:
+		"""Per-call setup: naming, the call record and the tracer"""
+
 		nonlocal call_counter
 
-		prev_mode = config._g_log_mode
-		prev_time = config._g_show_time
-		prev_file = config._g_show_file
-		prev_lineno = config._g_show_lineno
-
-		config._g_log_mode = mode
-		config._g_show_time = show_time
-		config._g_show_file = show_file
-		config._g_show_lineno = show_lineno
-
-		if not config._g_enabled:
-			return func(*args, **kwargs)
-
-		# Track multiple calls f.e recursion / repeat calls
 		call_counter += 1
 		call_id = call_counter
-		call_name = f"{func_path}{'' if call_counter == 1 else f'#{call_id}'}"
+		call_name = f"{func_path}{'' if call_id == 1 else f'#{call_id}'}"
 
-		def _should_emit(kind: Kind, name: str) -> bool:
-			if mode == "educational":
-				var = name.split(".")[-1]
-
-				# Always allow meaningful structural events
-				if kind in ("change", "message"):
-					return True
-
-				# Only allow SOME "set" events
-				if kind == "set":
-					# Ignore obvious noise
-					if var in ("_",):
-						return False
-
-					# Ignore loop counters
-					# if len(var) == 1 and var.isalpha():
-					# 	return False
-
-					# Ignore frequently changing temp vars
-					if var in ("i", "j", "k", "idx", "tmp", "val"):
-						return False
-
-					# Should work for basic scalars
-					return True
-
-			# LEVEL CONTROL
-			if level == "call" and kind not in ("call", "return"):
+		def should_emit(kind: str, name: str) -> bool:
+			if level == "call" and kind not in ("call", "return", "raise", "yield"):
 				return False
 
 			if level == "state" and kind == "call":
 				return False
 
-			# FILTER CONTROL
 			if filter_set:
 				var_name = name.split(".")[-1]
 				if var_name not in filter_set:
+					return False
+
+			# Educational narrows further, after level and filter
+			if mode == "educational" and kind == "set":
+				var = name.split(".")[-1]
+
+				if var in ("_", "i", "j", "k", "idx", "tmp", "val"):
 					return False
 
 			return True
@@ -541,7 +980,7 @@ def _log_function(
 			display_call_name, args[1:] if bound_name else args, kwargs
 		)
 
-		if _should_emit("call", display_call_name):
+		if should_emit("call", display_call_name):
 			target = _get_assignment_target_for_call(call_frame)
 
 			_emit(
@@ -556,102 +995,36 @@ def _log_function(
 				show_lineno=show_lineno,
 			)
 
-		last_values = {}
-		active_names: dict[FrameType, str] = {}
+		return _build_tracer(display_call_name, call_signature, args, kwargs, should_emit)
 
-		lambda_counter: int = 0
+	if target_code is None:
+		# C callables don't have a Python frame; tracer can't see the exit
+		@functools.wraps(func)
+		def native_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+			if not config._g_enabled:
+				return func(*args, **kwargs)
 
-		try:
+			frame = _caller_frame()
+			try:
+				filename, lineno = _get_location(frame)
+			finally:
+				del frame
 
-			def tracer(frame: FrameType, event: str, arg: object):
-				code = frame.f_code
-				filename = code.co_filename
+			previous = config._push_display(mode, show_time, show_file, show_lineno)
+			try:
+				state = _prepare(args, kwargs)
 
-				# For safety
-				if __name__.split(".")[0] in filename:
-					return tracer
+				def _emit_exit(kind: Kind, payload: dict[str, object]) -> None:
+					if not state.should_emit(kind, state.name):
+						return
 
-				lineno = frame.f_lineno
-
-				# Filter noise
-				# if (
-				# 		not filename.startswith(call_filename)
-				# 		or "site-packages" in filename
-				# 		or "/lib/python" in filename
-				# ):
-				# 	return tracer
-				if not filename.startswith(call_filename) and not show_wrapper_locals:
-					return tracer
-
-				if frame.f_code is target_code and frame not in active_names:
-					active_names[frame] = display_call_name
-
-				if event == "call":
-					parent = frame.f_back
-					if not parent:
-						return tracer
-
-					parent_name = active_names.get(parent)
-
-					# First nested call inside the traced function
-					if parent.f_code is target_code and parent_name is None:
-						parent_name = display_call_name
-
-					# Deeper nesting: only trace if we already know the parent chain
-					if parent_name is None:
-						return tracer
-
-					nested_name = code.co_name
-
-					if nested_name == "<lambda>":
-						nonlocal lambda_counter
-						lambda_counter += 1
-						nested_name = f"lambda#{lambda_counter}"
-
-					if nested_name == target_func.__name__:
-						return tracer
-
-					if nested_name.startswith("__"):
-						return tracer
-
-					if nested_name in ("currentframe", "abspath", "join", "parse"):
-						return tracer
-
-					if nested_name.startswith("lambda#"):
-						root_name = display_call_name
-						nested_full_name = f"{root_name}.{nested_name}"
-					else:
-						nested_full_name = f"{parent_name}.{nested_name}"
-
-					active_names[frame] = nested_full_name
-
-					defaults = {}
-					if frame.f_locals:
-						for name in code.co_varnames[: code.co_argcount]:
-							if name in frame.f_locals:
-								defaults[name] = frame.f_locals[name]
-
-					if _should_emit("call", nested_full_name):
-						_emit(
-							"call",
-							nested_full_name,
-							{"args": (), "kwargs": {}},
-							filename=filename,
-							lineno=lineno,
-							filepath=filepath,
-							show_time=show_time,
-							show_file=show_file,
-							show_lineno=show_lineno,
-						)
+					payload["args"] = args
+					payload["kwargs"] = kwargs
 
 					_emit(
-						"set",
-						nested_full_name,
-						{
-							"type": "function",
-							"path": nested_full_name,
-							"defaults": defaults,
-						},
+						kind,
+						state.name,
+						payload,
 						filename=filename,
 						lineno=lineno,
 						filepath=filepath,
@@ -660,169 +1033,161 @@ def _log_function(
 						show_lineno=show_lineno,
 					)
 
-					if frame.f_locals:
-						for key, value in frame.f_locals.items():
-							if key in {"self", "cls"}:
-								continue
-							if key in code.co_varnames:
-								name = f"{nested_full_name}.{key}"
-								if _should_emit("set", name):
-									_emit(
-										"set",
-										name,
-										value,
-										filename=filename,
-										lineno=lineno,
-										filepath=filepath,
-										show_time=show_time,
-										show_file=show_file,
-										show_lineno=show_lineno,
-									)
-									_mark_emitted(frame, key)
+				try:
+					result = func(*args, **kwargs)
+				except BaseException as caught:
+					_emit_exit(
+						"raise",
+						{
+							"exception": caught,
+							"exception_type": type(caught).__name__,
+							"call_signature": state.signature,
+						},
+					)
+					raise
 
-					return tracer
+				_emit_exit("return", {"value": result, "call_signature": state.signature})
+				return result
+			finally:
+				config._pop_display(previous)
 
-				if frame.f_code in allowed_codes or (
-					frame.f_back and frame.f_back.f_code in allowed_codes
-				):
-					if event == "line":
-						current = dict(frame.f_locals)
-						for key, value in current.items():
-							if key == "_":
-								continue
+		return native_wrapper
 
-							if key in {"self", "cls"}:
-								last_values[key] = value
-								continue
+	if is_async:
+		# settrace cannot follow a coroutine across an await, so warn instead
+		@functools.wraps(func)
+		def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+			if config._g_enabled:
+				warnings.warn(
+					f"logeye cannot trace the body of async function {func_path!r};"
+					+ " only the call itself is logged",
+					RuntimeWarning,
+					stacklevel=2,
+				)
 
-							if (
-								is_method_like
-								and key in code.co_varnames[: code.co_argcount]
-							):
-								last_values[key] = value
-								continue
+				previous = config._push_display(mode, show_time, show_file, show_lineno)
+				try:
+					_ = _prepare(args, kwargs)
+				finally:
+					config._pop_display(previous)
 
-							if (
-								mode == "educational"
-								and key in "_"
-								or key
-								in {
-									"args",
-									"kwargs",
-									"allowed_codes",
-									"call_counter",
-									"tracer",
-								}
-							):
-								continue
+			return func(*args, **kwargs)
 
-							# last_values and _g_last_seen did not talk to each other
-							# This means that repeat calls of log on the same function in many places
-							# Caused it to display set again, when it should've been change in reality
-							global_last = _g_last_seen.setdefault(frame.f_code, {})
-							old = global_last.get(key, last_values.get(key, _NO_VALUE))
+		return async_wrapper
 
-							if (frame.f_code, key) in _recently_emitted:
-								_recently_emitted.remove((frame.f_code, key))
-								last_values[key] = value
-								continue
+	if is_generator:
+		# noinspection PyUnnecessaryCast
+		gen_func = cast("Callable[..., Generator[object, object, object]]", func)
 
-							if not isinstance(
-								value, (LoggedObject, LoggedList, LoggedDict, LoggedSet)
-							):
-								wrapped = _wrap_value(
-									value, name=f"{display_call_name}.{key}"
-								)
-								if wrapped is not value:
-									frame.f_locals[key] = wrapped
-									value = wrapped
+		@functools.wraps(func)
+		def generator_wrapper(
+			*args: object, **kwargs: object
+		) -> Generator[object, object, object]:
+			if not config._g_enabled:
+				yield from gen_func(*args, **kwargs)
+				return
 
-							frame_name = active_names.get(frame, display_call_name)
-							name = f"{frame_name}.{key}"
+			previous = config._push_display(mode, show_time, show_file, show_lineno)
+			try:
+				state = _prepare(args, kwargs)
+			finally:
+				config._pop_display(previous)
 
-							if callable(value):
-								continue
+			tracer = state.tracer
+			generator = gen_func(*args, **kwargs)
 
-							if old is _NO_VALUE:
-								kind = "set"
-							elif old != value:
-								kind = "change"
-							else:
-								if key not in _g_watched_names.get(frame.f_code, set()):
-									continue
-								kind = "change"
+			def _emit_exit(kind: Kind, value: object) -> None:
+				if not state.should_emit(kind, state.name):
+					return
 
-							if kind in {"set", "change"}:
-								threshold_spec = _resolve_threshold_for_name(
-									name, threshold
-								)
-								if not _passes_threshold(old, value, threshold_spec):
-									continue
+				payload: dict[str, object] = {
+					"value": value,
+					"args": args,
+					"kwargs": kwargs,
+				}
 
-							if _should_emit(kind, name):
-								_emit(
-									kind,
-									name,
-									value,
-									filename=filename,
-									lineno=lineno,
-									filepath=filepath,
-									show_time=show_time,
-									show_file=show_file,
-									show_lineno=show_lineno,
-								)
+				if not is_method_like:
+					payload["call_signature"] = state.signature
 
-								last_values[key] = value
-								global_last[key] = value
-					elif event == "return":
-						if _should_emit("return", display_call_name):
-							return_name = active_names.get(frame, display_call_name)
+				_emit(
+					kind,
+					state.name,
+					payload,
+					filename=target_code.co_filename if target_code else None,
+					lineno=state.exit_line,
+					filepath=filepath,
+					show_time=show_time,
+					show_file=show_file,
+					show_lineno=show_lineno,
+				)
 
-							payload = {
-								"value": arg,
-								"args": args,
-								"kwargs": kwargs,
-							}
-							if not is_method_like:
-								payload["call_signature"] = payload["call_signature"] = (
-									call_signature
-								)
+			def _resume(step: Callable[[], object]) -> object:
+				"""
+				Run one step of the generator with tracing installed
+				The body only runs between next()/send(), long after the wrapper returned
+				"""
 
-							# 	(
-							# 	call_signature
-							# 	if return_name == display_call_name
-							# 	else f"{return_name}()"
-							# )
+				previous = config._push_display(mode, show_time, show_file, show_lineno)
+				old_trace = sys.gettrace()
+				sys.settrace(tracer)
 
-							_emit(
-								"return",
-								return_name,
-								payload,
-								filename=filename,
-								lineno=lineno,
-								filepath=filepath,
-								show_time=show_time,
-								show_file=show_file,
-								show_lineno=show_lineno,
-							)
+				try:
+					return step()
+				finally:
+					sys.settrace(old_trace)
+					config._pop_display(previous)
 
-							active_names.pop(frame, None)
+			to_send: object = None
 
-				return tracer
+			while True:
+				try:
+					item = _resume(lambda: generator.send(to_send))
+				except StopIteration as stop:
+					_emit_exit("return", cast(object, stop.value))
+					return
+
+				_emit_exit("yield", item)
+
+				try:
+					to_send = yield item
+				except GeneratorExit:
+					_ = generator.close()
+					raise
+				except BaseException as caught:
+					# Python clears the `except` name at block end
+					thrown = caught
+
+					try:
+						item = _resume(lambda: generator.throw(thrown))
+					except StopIteration as stop:
+						_emit_exit("return", cast(object, stop.value))
+						return
+
+					_emit_exit("yield", item)
+					to_send = yield item
+
+		# noinspection PyUnnecessaryCast
+		return cast("Callable[P, T]", generator_wrapper)
+
+	@functools.wraps(func)
+	def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+		if not config._g_enabled:
+			return func(*args, **kwargs)
+
+		previous = config._push_display(mode, show_time, show_file, show_lineno)
+
+		try:
+			state = _prepare(args, kwargs)
 
 			old_trace = sys.gettrace()
-			sys.settrace(tracer)
+			sys.settrace(state.tracer)
 
 			try:
 				return func(*args, **kwargs)
 			finally:
 				sys.settrace(old_trace)
-
 		finally:
-			config._g_log_mode = prev_mode
-			config._g_show_time = prev_time
-			config._g_show_file = prev_file
-			config._g_show_lineno = prev_lineno
+			config._pop_display(previous)
 
 	return wrapper
 
@@ -843,40 +1208,43 @@ def _log_object(
 	if not config._g_enabled or config._g_deco_only:
 		return obj
 
-	if name is None:
-		frame = _caller_frame()
-		try:
-			name = _get_assignment_target_for_call(frame)
-		finally:
-			del frame
-
-	if not name:
-		name = "set"
-
-	wrapped = LoggedObject(obj, name=name)
-
 	frame = _caller_frame()
-	filename, lineno = _get_location(frame)
 
-	if isinstance(obj, Mapping):
-		value = dict(obj)
-	else:
-		value = vars(obj)
+	try:
+		if name is None:
+			name = _get_assignment_target_for_call(frame)
 
-	_emit(
-		"set",
-		name,
-		value,
-		filename=filename,
-		lineno=lineno,
-		show_time=show_time,
-		show_file=show_file,
-		show_lineno=show_lineno,
-	)
+		if not name:
+			name = "set"
 
-	_mark_emitted(frame, name)
+		wrapped = LoggedObject(obj, name=name)
 
-	del frame
+		filename, lineno = _get_location(frame)
+
+		value: dict[object, object]
+
+		if isinstance(obj, Mapping):
+			# noinspection PyUnnecessaryCast
+			value = dict(cast("Mapping[object, object]", obj))
+		else:
+			value = cast("dict[object, object]", cast(object, vars(obj)))
+
+		_emit(
+			"set",
+			name,
+			value,
+			filename=filename,
+			lineno=lineno,
+			show_time=show_time,
+			show_file=show_file,
+			show_lineno=show_lineno,
+		)
+
+		if frame is not None:
+			_mark_emitted(frame, name)
+	finally:
+		del frame
+
 	return wrapped
 
 
@@ -891,18 +1259,12 @@ def _log_message(
 	frame = _caller_frame()
 
 	try:
-		# 1. Apply {} formatting if needed
 		if args or kwargs:
 			rendered = _format_message(text, *args, **kwargs)
 		else:
-			# Try template expansion first ($x style)
 			rendered = _expand_template(text)
 
-			# Fallback - treat as raw string (f-strings already evaluated here)
-			if rendered == text:
-				rendered = text
-
-		# 2. Always use the special $var formatting we have
+		# $var expansion always runs
 		try:
 			rendered = _expand_template(rendered)
 		except Exception:
@@ -913,20 +1275,9 @@ def _log_message(
 
 		name = _get_assignment_target_for_call(frame)
 
-		# NOTE: We could also watch all strings automatically passed into the f-string lol
-		# NOTE: But this would be too invasive methinks
-		# local_vars = frame.f_locals
-		#
-		# for var_name, value in local_vars.items():
-		# 	try:
-		# 		if str(value) in rendered:
-		# 			_mark_watched(frame, var_name)
-		# 	except Exception:
-		# 		continue
-
 		filename, lineno = _get_location(frame)
 
-		if name:
+		if name and frame is not None:
 			_mark_watched(frame, name)
 			_install_global_trace(frame)
 
@@ -1069,20 +1420,15 @@ def _dispatch_log(
 	**kwargs: object,
 ) -> object:
 	"""
-	Dispatches behaviour based on input type:
-
-	- class     -> wrap class (__init__)
-	- function  -> trace execution
-	- string    -> formatted message
-	- mapping/object -> LoggedObject wrapper
-	- other     -> simple value logging
+	Dispatch on input type
+	class -> patch __init__ | function -> trace | str -> message mapping/object -> LoggedObject | other -> value logging
 	"""
 
 	if show_wrapper_locals is None:
 		show_wrapper_locals = False
 
 	if mode is None:
-		mode = config._g_log_mode
+		mode = config._mode()
 	else:
 		mode = config._normalize_mode(mode)
 
@@ -1090,13 +1436,13 @@ def _dispatch_log(
 	deco_path = _resolve_filepath(file=file, filepath=filepath)
 
 	if show_time is None:
-		show_time = config._g_show_time
+		show_time = config._show_time()
 
 	if show_file is None:
-		show_file = config._g_show_file
+		show_file = config._show_file()
 
 	if show_lineno is None:
-		show_lineno = config._g_show_lineno
+		show_lineno = config._show_lineno()
 
 	if mode == "educational":
 		show_file = False
@@ -1140,21 +1486,30 @@ def _dispatch_log(
 	# Do NOT wrap class instances
 	if isinstance(obj, Mapping):
 		return _log_object(
-			obj, show_time=show_time, show_file=show_file, show_lineno=show_lineno
+			cast("Mapping[object, object]", obj),
+			show_time=show_time,
+			show_file=show_file,
+			show_lineno=show_lineno,
 		)
 
-	# Plain objects just return as-is (already handled by @log class)
+	# Plain objects return as-is; @log on the class already handled them
 	if hasattr(obj, "__dict__"):
 		return obj
 
 	if isinstance(obj, list):
 		frame = _caller_frame()
-		name = _get_assignment_target_for_call(frame) or "set"
 
-		_mark_watched(frame, name, threshold=threshold)
-		_install_global_trace(frame)
+		try:
+			name = _get_assignment_target_for_call(frame) or "set"
 
-		return _wrap_value(obj, name=name)
+			if frame is not None:
+				_mark_watched(frame, name, threshold=threshold)
+				_install_global_trace(frame)
+
+			# noinspection PyUnnecessaryCast
+			return _wrap_value(cast("list[object]", obj), name=name)
+		finally:
+			del frame
 
 	return watch(
 		obj,
@@ -1165,18 +1520,40 @@ def _dispatch_log(
 	)
 
 
+_dispatch_untyped = cast("Callable[..., object]", _dispatch_log)
+
+
+class _BoundLog:
+	"""
+	A log(...) call that carried options but no value yet
+	Each configuration gets its own object, so an unrelated call cannot consume it
+	"""
+
+	__slots__: tuple[str, ...] = ("_options",)
+
+	_options: dict[str, object]
+
+	def __init__(self, options: dict[str, object]) -> None:
+		self._options = options
+
+	def __call__(
+		self,
+		obj: Callable[P, T] | Mapping[K, V] | object = _NO_VALUE,
+		*args: object,
+		**kwargs: object,
+	) -> object:
+		merged = {**self._options, **kwargs}
+
+		if obj is _NO_VALUE:
+			return _BoundLog(merged)
+
+		return _dispatch_untyped(obj, *args, **merged)
+
+	def __ror__(self, other: object) -> object:
+		return _dispatch_untyped(other, **self._options)
+
+
 class _LogAPI:
-	def __init__(self) -> None:
-		self._pending_kwargs: dict[str, object] | None = None
-
-	def _set_pending(self, **kwargs: object) -> None:
-		self._pending_kwargs = kwargs
-
-	def _consume_pending(self) -> dict[str, object] | None:
-		pending = self._pending_kwargs
-		self._pending_kwargs = None
-		return pending
-
 	def __call__(
 		self,
 		obj: Callable[P, T] | Mapping[K, V] | object = _NO_VALUE,
@@ -1193,56 +1570,26 @@ class _LogAPI:
 		show_wrapper_locals: bool | None = None,
 		**kwargs: object,
 	) -> object:
-		if obj is _NO_VALUE:
-			self._set_pending(
-				file=file,
-				filepath=filepath,
-				level=level,
-				filter=filter,
-				mode=mode,
-				threshold=threshold,
-				show_time=show_time,
-				show_file=show_file,
-				show_lineno=show_lineno,
-				show_wrapper_locals=show_wrapper_locals,
-				**kwargs,
-			)
-			return self
-
-		pending = self._consume_pending()
-		if pending:
-			file = pending.pop("file", file)
-			filepath = pending.pop("filepath", filepath)
-			level = pending.pop("level", level)
-			filter = pending.pop("filter", filter)
-			mode = pending.pop("mode", mode)
-			threshold = pending.pop("threshold", threshold)
-			show_time = pending.pop("show_time", show_time)
-			show_file = pending.pop("show_file", show_file)
-			show_lineno = pending.pop("show_lineno", show_lineno)
-			show_wrapper_locals = pending.pop("show_wrapper_locals", show_wrapper_locals)
-			kwargs = {**pending, **kwargs}
-
-		return _dispatch_log(
-			obj,
-			*args,
-			file=file,
-			filepath=filepath,
-			level=level,
-			filter=filter,
-			mode=mode,
-			threshold=threshold,
-			show_time=show_time,
-			show_file=show_file,
-			show_lineno=show_lineno,
-			show_wrapper_locals=show_wrapper_locals,
+		options: dict[str, object] = {
+			"file": file,
+			"filepath": filepath,
+			"level": level,
+			"filter": filter,
+			"mode": mode,
+			"threshold": threshold,
+			"show_time": show_time,
+			"show_file": show_file,
+			"show_lineno": show_lineno,
+			"show_wrapper_locals": show_wrapper_locals,
 			**kwargs,
-		)
+		}
+
+		if obj is _NO_VALUE:
+			return _BoundLog(options)
+
+		return _dispatch_untyped(obj, *args, **options)
 
 	def __ror__(self, other: object) -> object:
-		pending = self._consume_pending()
-		if pending:
-			return _dispatch_log(other, **pending)
 		return _log_pipe_value(other)
 
 
@@ -1253,19 +1600,31 @@ def _log_pipe_value(other: object) -> object:
 		name = _infer_name_from_frame(frame)
 		filename, lineno = _get_location(frame)
 
-		if name:
+		if name and frame is not None:
 			_mark_watched(frame, name)
 			_install_global_trace(frame)
 
 			_emit("set", name, other, filename=filename, lineno=lineno)
 
 			_mark_emitted(frame, name)
-
-			_g_last_seen.setdefault(frame.f_code, {})[name] = other
 		else:
 			_emit("message", "message", other, filename=filename, lineno=lineno)
-			_mark_emitted(frame, name)
 	finally:
 		del frame
 
 	return other
+
+
+__all__ = [
+	"Kind",
+	"Level",
+	"watch",
+	"_LogAPI",
+	"_BoundLog",
+	"_dispatch_log",
+	"_log_class",
+	"_log_function",
+	"_log_object",
+	"_log_message",
+	"_log_pipe_value",
+]

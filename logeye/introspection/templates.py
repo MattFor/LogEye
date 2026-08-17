@@ -11,11 +11,12 @@ def _expand_template(text: str) -> str:
 		if frame is None:
 			return text
 
-		namespace: dict[str, str] = {}
+		# Frame namespaces hold arbitrary values; Template stringifies them
+		namespace: dict[str, object] = {}
 		namespace.update(frame.f_globals)
 		namespace.update(frame.f_locals)
 
-		filename, lineno = _get_location(frame)
+		filename, _ = _get_location(frame)
 
 		namespace["apath"] = filename or ""
 		namespace["rpath"] = (

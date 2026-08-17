@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "logeye"
-version = "1.5.2"
+version = "1.6.0"
 description = "Frictionless runtime logging for Python variables and functions"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,7 +29,7 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/MattFor/LogEye"
+Homepage = "https://github.com/MattFor/logeye"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -67,3 +67,4 @@ include = ["logeye"]
 exclude = ["tests", "demos"]
 
 reportPrivateUsage = false # We'll deal with this later methinks
+reportImportCycles = false

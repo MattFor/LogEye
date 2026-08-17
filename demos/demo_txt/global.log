@@ -1,68 +1,34 @@
-[0.000s] demo_file_and_filter.py:8 (set) x = 10
-[0.000s] demo_file_and_filter.py:9 (set) y = 20
-[0.002s] demo_file_and_filter.py:10 sum is 30
-[0.004s] demo_file_and_filter.py:41 (set) y = 50
-[0.004s] demo_file_and_filter.py:54 (set) foo.x = 10
-[0.004s] demo_file_and_filter.py:67 (set) dijkstra.distances = {'A': inf, 'B': inf, 'C': inf, 'D': inf}
-[0.004s] demo_file_and_filter.py:67 (change) dijkstra.distances.A = {'op': 'setitem', 'value': 0, 'state': {'A': 0, 'B': inf, 'C': inf, 'D': inf}}
-[0.004s] demo_file_and_filter.py:71 (set) dijkstra.queue = [(0, 'A')]
-[0.004s] demo_file_and_filter.py:72 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (0, 'A'), 'state': []}
-[0.004s] demo_file_and_filter.py:78 (change) dijkstra.distances.B = {'op': 'setitem', 'value': 1, 'state': {'A': 0, 'B': 1, 'C': inf, 'D': inf}}
-[0.004s] demo_file_and_filter.py:79 (change) dijkstra.queue = {'op': 'append', 'value': (1, 'B'), 'state': [(1, 'B')]}
-[0.005s] demo_file_and_filter.py:78 (change) dijkstra.distances.C = {'op': 'setitem', 'value': 4, 'state': {'A': 0, 'B': 1, 'C': 4, 'D': inf}}
-[0.005s] demo_file_and_filter.py:79 (change) dijkstra.queue = {'op': 'append', 'value': (4, 'C'), 'state': [(1, 'B'), (4, 'C')]}
-[0.005s] demo_file_and_filter.py:81 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(1, 'B'), (4, 'C')]}
-[0.006s] demo_file_and_filter.py:72 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (1, 'B'), 'state': [(4, 'C')]}
-[0.006s] demo_file_and_filter.py:78 (change) dijkstra.distances.C = {'op': 'setitem', 'value': 3, 'state': {'A': 0, 'B': 1, 'C': 3, 'D': inf}}
-[0.006s] demo_file_and_filter.py:79 (change) dijkstra.queue = {'op': 'append', 'value': (3, 'C'), 'state': [(4, 'C'), (3, 'C')]}
-[0.006s] demo_file_and_filter.py:78 (change) dijkstra.distances.D = {'op': 'setitem', 'value': 6, 'state': {'A': 0, 'B': 1, 'C': 3, 'D': 6}}
-[0.006s] demo_file_and_filter.py:79 (change) dijkstra.queue = {'op': 'append', 'value': (6, 'D'), 'state': [(4, 'C'), (3, 'C'), (6, 'D')]}
-[0.006s] demo_file_and_filter.py:81 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(3, 'C'), (4, 'C'), (6, 'D')]}
-[0.007s] demo_file_and_filter.py:72 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (3, 'C'), 'state': [(4, 'C'), (6, 'D')]}
-[0.007s] demo_file_and_filter.py:78 (change) dijkstra.distances.D = {'op': 'setitem', 'value': 4, 'state': {'A': 0, 'B': 1, 'C': 3, 'D': 4}}
-[0.007s] demo_file_and_filter.py:79 (change) dijkstra.queue = {'op': 'append', 'value': (4, 'D'), 'state': [(4, 'C'), (6, 'D'), (4, 'D')]}
-[0.007s] demo_file_and_filter.py:81 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(4, 'C'), (4, 'D'), (6, 'D')]}
-[0.007s] demo_file_and_filter.py:72 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (4, 'C'), 'state': [(4, 'D'), (6, 'D')]}
-[0.007s] demo_file_and_filter.py:81 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(4, 'D'), (6, 'D')]}
-[0.008s] demo_file_and_filter.py:72 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (4, 'D'), 'state': [(6, 'D')]}
-[0.008s] demo_file_and_filter.py:81 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(6, 'D')]}
-[0.008s] demo_file_and_filter.py:72 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (6, 'D'), 'state': []}
-[0.008s] demo_file_and_filter.py:81 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': []}
-[0.008s] demo_file_and_filter.py:96 (change) process.queue = {'op': 'append', 'value': 1, 'state': [1]}
-[0.008s] demo_file_and_filter.py:97 (change) process.queue = {'op': 'append', 'value': 2, 'state': [1, 2]}
-[0.008s] demo_file_and_filter.py:98 (change) process.queue = {'op': 'pop', 'index': 0, 'value': 1, 'state': [2]}
-[0.008s] demo_file_and_filter.py:109 (set) compute.x = 5
-[0.000s] demo_file_and_filter.py:8 (set) x = 10
-[0.000s] demo_file_and_filter.py:9 (set) y = 20
-[0.002s] demo_file_and_filter.py:10 sum is 30
-[0.004s] demo_file_and_filter.py:41 (set) y = 50
-[0.004s] demo_file_and_filter.py:54 (set) foo.x = 10
-[0.004s] demo_file_and_filter.py:67 (set) dijkstra.distances = {'A': inf, 'B': inf, 'C': inf, 'D': inf}
-[0.004s] demo_file_and_filter.py:67 (change) dijkstra.distances.A = {'op': 'setitem', 'value': 0, 'state': {'A': 0, 'B': inf, 'C': inf, 'D': inf}}
-[0.005s] demo_file_and_filter.py:71 (set) dijkstra.queue = [(0, 'A')]
-[0.005s] demo_file_and_filter.py:72 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (0, 'A'), 'state': []}
-[0.005s] demo_file_and_filter.py:78 (change) dijkstra.distances.B = {'op': 'setitem', 'value': 1, 'state': {'A': 0, 'B': 1, 'C': inf, 'D': inf}}
-[0.005s] demo_file_and_filter.py:79 (change) dijkstra.queue = {'op': 'append', 'value': (1, 'B'), 'state': [(1, 'B')]}
-[0.005s] demo_file_and_filter.py:78 (change) dijkstra.distances.C = {'op': 'setitem', 'value': 4, 'state': {'A': 0, 'B': 1, 'C': 4, 'D': inf}}
-[0.005s] demo_file_and_filter.py:79 (change) dijkstra.queue = {'op': 'append', 'value': (4, 'C'), 'state': [(1, 'B'), (4, 'C')]}
-[0.006s] demo_file_and_filter.py:81 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(1, 'B'), (4, 'C')]}
-[0.006s] demo_file_and_filter.py:72 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (1, 'B'), 'state': [(4, 'C')]}
-[0.006s] demo_file_and_filter.py:78 (change) dijkstra.distances.C = {'op': 'setitem', 'value': 3, 'state': {'A': 0, 'B': 1, 'C': 3, 'D': inf}}
-[0.006s] demo_file_and_filter.py:79 (change) dijkstra.queue = {'op': 'append', 'value': (3, 'C'), 'state': [(4, 'C'), (3, 'C')]}
-[0.006s] demo_file_and_filter.py:78 (change) dijkstra.distances.D = {'op': 'setitem', 'value': 6, 'state': {'A': 0, 'B': 1, 'C': 3, 'D': 6}}
-[0.006s] demo_file_and_filter.py:79 (change) dijkstra.queue = {'op': 'append', 'value': (6, 'D'), 'state': [(4, 'C'), (3, 'C'), (6, 'D')]}
-[0.006s] demo_file_and_filter.py:81 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(3, 'C'), (4, 'C'), (6, 'D')]}
-[0.007s] demo_file_and_filter.py:72 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (3, 'C'), 'state': [(4, 'C'), (6, 'D')]}
-[0.007s] demo_file_and_filter.py:78 (change) dijkstra.distances.D = {'op': 'setitem', 'value': 4, 'state': {'A': 0, 'B': 1, 'C': 3, 'D': 4}}
-[0.007s] demo_file_and_filter.py:79 (change) dijkstra.queue = {'op': 'append', 'value': (4, 'D'), 'state': [(4, 'C'), (6, 'D'), (4, 'D')]}
-[0.007s] demo_file_and_filter.py:81 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(4, 'C'), (4, 'D'), (6, 'D')]}
-[0.007s] demo_file_and_filter.py:72 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (4, 'C'), 'state': [(4, 'D'), (6, 'D')]}
-[0.008s] demo_file_and_filter.py:81 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(4, 'D'), (6, 'D')]}
-[0.008s] demo_file_and_filter.py:72 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (4, 'D'), 'state': [(6, 'D')]}
-[0.008s] demo_file_and_filter.py:81 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': [(6, 'D')]}
-[0.008s] demo_file_and_filter.py:72 (change) dijkstra.queue = {'op': 'pop', 'index': 0, 'value': (6, 'D'), 'state': []}
-[0.008s] demo_file_and_filter.py:81 (change) dijkstra.queue = {'op': 'sort', 'args': (), 'kwargs': {}, 'state': []}
-[0.008s] demo_file_and_filter.py:96 (change) process.queue = {'op': 'append', 'value': 1, 'state': [1]}
-[0.008s] demo_file_and_filter.py:97 (change) process.queue = {'op': 'append', 'value': 2, 'state': [1, 2]}
-[0.009s] demo_file_and_filter.py:98 (change) process.queue = {'op': 'pop', 'index': 0, 'value': 1, 'state': [2]}
-[0.009s] demo_file_and_filter.py:109 (set) compute.x = 5
+[0.004s] demo_file_and_filter.py:17 (set) x = 10
+[0.005s] demo_file_and_filter.py:18 (set) y = 20
+[0.010s] demo_file_and_filter.py:19 sum is 30
+[0.016s] demo_file_and_filter.py:50 (set) y = 50
+[0.017s] demo_file_and_filter.py:62 (set) foo.x = 10
+[0.017s] demo_file_and_filter.py:75 (set) dijkstra.distances = {'A': inf, 'B': inf, 'C': inf, 'D': inf}
+[0.017s] demo_file_and_filter.py:76 (change) dijkstra.distances.A = 0
+[0.017s] demo_file_and_filter.py:78 (set) dijkstra.queue = [(0, 'A')]
+[0.017s] demo_file_and_filter.py:81 (change) dijkstra.queue.pop(0) -> (0, 'A') | []
+[0.017s] demo_file_and_filter.py:87 (change) dijkstra.distances.B = 1
+[0.017s] demo_file_and_filter.py:88 (change) dijkstra.queue.append((1, 'B')) -> [(1, 'B')]
+[0.017s] demo_file_and_filter.py:87 (change) dijkstra.distances.C = 4
+[0.018s] demo_file_and_filter.py:88 (change) dijkstra.queue.append((4, 'C')) -> [(1, 'B'), (4, 'C')]
+[0.018s] demo_file_and_filter.py:90 (change) dijkstra.queue.sort() -> [(1, 'B'), (4, 'C')]
+[0.018s] demo_file_and_filter.py:81 (change) dijkstra.queue.pop(0) -> (1, 'B') | [(4, 'C')]
+[0.018s] demo_file_and_filter.py:87 (change) dijkstra.distances.C = 3
+[0.018s] demo_file_and_filter.py:88 (change) dijkstra.queue.append((3, 'C')) -> [(4, 'C'), (3, 'C')]
+[0.018s] demo_file_and_filter.py:87 (change) dijkstra.distances.D = 6
+[0.018s] demo_file_and_filter.py:88 (change) dijkstra.queue.append((6, 'D')) -> [(4, 'C'), (3, 'C'), (6, 'D')]
+[0.018s] demo_file_and_filter.py:90 (change) dijkstra.queue.sort() -> [(3, 'C'), (4, 'C'), (6, 'D')]
+[0.018s] demo_file_and_filter.py:81 (change) dijkstra.queue.pop(0) -> (3, 'C') | [(4, 'C'), (6, 'D')]
+[0.018s] demo_file_and_filter.py:87 (change) dijkstra.distances.D = 4
+[0.018s] demo_file_and_filter.py:88 (change) dijkstra.queue.append((4, 'D')) -> [(4, 'C'), (6, 'D'), (4, 'D')]
+[0.018s] demo_file_and_filter.py:90 (change) dijkstra.queue.sort() -> [(4, 'C'), (4, 'D'), (6, 'D')]
+[0.018s] demo_file_and_filter.py:81 (change) dijkstra.queue.pop(0) -> (4, 'C') | [(4, 'D'), (6, 'D')]
+[0.019s] demo_file_and_filter.py:90 (change) dijkstra.queue.sort() -> [(4, 'D'), (6, 'D')]
+[0.019s] demo_file_and_filter.py:81 (change) dijkstra.queue.pop(0) -> (4, 'D') | [(6, 'D')]
+[0.019s] demo_file_and_filter.py:90 (change) dijkstra.queue.sort() -> [(6, 'D')]
+[0.019s] demo_file_and_filter.py:81 (change) dijkstra.queue.pop(0) -> (6, 'D') | []
+[0.019s] demo_file_and_filter.py:90 (change) dijkstra.queue.sort() -> []
+[0.019s] demo_file_and_filter.py:105 (change) process.queue.append(1) -> [1]
+[0.019s] demo_file_and_filter.py:106 (change) process.queue.append(2) -> [1, 2]
+[0.019s] demo_file_and_filter.py:107 (change) process.queue.pop(0) -> 1 | [2]
+[0.019s] demo_file_and_filter.py:117 (set) compute.x = 5

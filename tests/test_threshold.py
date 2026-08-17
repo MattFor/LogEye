@@ -135,7 +135,6 @@ def test_function_threshold_simple(capsys):
 	assert_has_return(raw)
 
 
-# TODO: FIX
 def test_function_relative_threshold(capsys):
 	@log(threshold={"x": ("relative", 0.2)})
 	def f():
@@ -150,7 +149,7 @@ def test_function_relative_threshold(capsys):
 	assert_has_call(raw)
 	assert_has_set(raw, "x", 10)
 
-	assert_not_has(raw, "11")
+	assert_not_has(raw, "x = 11")
 	assert_has_change(raw, "x", 14)
 
 	assert_has_return(raw)

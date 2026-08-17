@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.6.0] - 2026-08-18
+
+### Performance
+
+* Assignment-target lookup is memoised per `(file, line)` instead of
+  `ast.parse`-ing the whole source file on every decorated call: 256 µs -> 2.8 µs
+* Both tracers now decline frames they will never log. stdlib and
+  third-party code no longer pays for a Python callback per line
+* `watch()` no longer slows the rest of the process down by a lot
+* File logging keeps handles open instead of reopening per line: 20.7 µs -> 1.9 µs
+
+### Fixed
+
+* `@log` works across modules and in threads. The tracer used to compare the
+  callee's filename to the caller's and log nothing but the call
+* Calling the same function twice logs its body again; baselines are no longer
+  shared across invocations (which also silenced every level of a recursion)
+* The last statement of a function body is logged, and line numbers point at
+  the statement that produced the value
+* Generators are traced (`(yield)`, with `send`/`throw`/`close` forwarded), and
+  a function that raised is reported as `(raise)` rather than returning `None`
+* Logging no longer changes what the program computes. `LoggedObject`
+  delegates `__eq__`/`__hash__`, and modules, frames, tracebacks, exceptions and
+  file objects are left unwrapped instead of being expanded into the log
+* Shared references are wrapped once by identity rather than once per path, and
+  cyclic structures render `"<cycle>"` instead of blowing the stack
+* numpy arrays and pandas frames no longer abort the traced program with
+  `ValueError: The truth value of an array ... is ambiguous`
+* C callables report their result: `log(len)` and friends emit `(return)` /
+  `(raise)` from the wrapper, and `log(int)` no longer raises on immutable types
+* Per-call display settings are thread-local
+* `set_output_formatter()` takes effect, and educational mode honours `level=`
+  and `filter=`
+* `@log` patches classes in place, so `type(obj) is MyClass` still holds;
+  `__slots__` classes work
+* A bare `log(value)` emits the value as a message instead of printing
+  `None = value` or crashing in educational mode
+
+### Added
+
+* `stop_watching()` - removes the global tracer and restores what was there before
+* `clear_log_file(*paths)` - empties log files so a rerun starts clean
+* `tests/conftest.py`, plus 59 new tests covering the fixes above and
+  C-implemented callables - `pytest tests/` now runs on a clean checkout
+
+### Internal
+
+* Everything now adheres to basedpyright
+* Per-code-object watcher state is capped so long-lived processes cannot grow
+  without bound
+* Removed dead code from the tracer hot paths and name-inference helpers
+
 ## [1.5.2] - 2026-04-15
 
 ### Added
@@ -28,9 +80,9 @@
           ```python
           @log(threshold={"x": ("relative", 0.2)})
           def f():
-              x = 10
-              x += 1   # Ignored here
-              x += 3   # Emitted normally
+          	x = 10
+          	x += 1  # Ignored here
+          	x += 3  # Emitted normally
           ```
 
     * Prevents noisy logs from small fluctuations
@@ -115,8 +167,8 @@
     * `log` is now the preferred function for logging
     * `l` is preferred for pipe operations
   ```python
-  x = "xyz" | l # For tracking variables
-  log("X is $x") # For manual logging
+  x = "xyz" | l  # For tracking variables
+  log("X is $x")  # For manual logging
   ```
 
 * **Full class method logging**

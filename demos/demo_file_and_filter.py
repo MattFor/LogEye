@@ -1,4 +1,13 @@
-from logeye import log, set_global_log_file, toggle_global_log_file
+from logeye import log, clear_log_file, set_global_log_file, toggle_global_log_file
+
+LOG_FILES = (
+	"demo_txt/global.log",
+	"demo_txt/func.log",
+	"demo_txt/special.log",
+	"demo_txt/queue.log",
+)
+
+clear_log_file(*LOG_FILES)
 
 print("\n--- Global file logging ---")
 

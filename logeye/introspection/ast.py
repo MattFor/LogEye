@@ -1,34 +1,30 @@
+from __future__ import annotations
+
 import os
 import ast
 import linecache
 
+from typing import NamedTuple
+
 from .. import config
 from types import FrameType
-from .frames import _caller_frame
+from .frames import _is_library_file
 
-# Tracks how many log() calls happened on a single line
-# Used to map tuples a, b = log(...), log(...)
+# log() calls per line, for `a, b = log(...), log(...)`; wraps on target count
 _call_counter_per_line: dict[tuple[str, int], int] = {}
 
 
 def _is_user_code(filename: str) -> bool:
-	"""
-	Filter out internal library frames
-
-	Returns True only for user code (not inside logeye itself)
-	"""
+	"""True only for user code, not logeye's own frames"""
 
 	if not filename:
 		return True
 
-	filename = os.path.abspath(filename)
-	return "/logeye/" not in filename
+	return not _is_library_file(filename)
 
 
 def _is_direct_log_call(node: ast.AST) -> bool:
-	"""
-	Check if an AST node is a direct call to `log(...)` or pipe `l`
-	"""
+	"""Is this node a direct `log(...)` / `l(...)` call?"""
 
 	return (
 		isinstance(node, ast.Call)
@@ -37,138 +33,125 @@ def _is_direct_log_call(node: ast.AST) -> bool:
 	)
 
 
-def _is_assigned_call(frame: FrameType | None) -> bool:
-	"""
-	Detect whether the current line contains an assignment
-	where log(...) is used
+# ==========================
+#  CACHED SOURCE INSPECTION
+# ==========================
 
-	Used to differentiate between:
-	- x = log(...)
-	- log(...)  (by itself)
-	"""
 
-	if frame is None:
-		return False
+class _LineInfo(NamedTuple):
+	"""What the assignment on a single source line targets"""
 
-	filename = frame.f_code.co_filename
-	lineno = frame.f_lineno
+	# Target when the value is literally log(...) / l(...) or a `| l` pipe
+	log_single: str | None
 
-	# Read single line, fast but kinda limited
-	source = linecache.getline(filename, lineno).strip()
+	# Target for any simple assignment, whatever the right-hand side
+	any_single: str | None
 
-	if not source:
-		return False
+	# Tuple-assignment targets, empty when the line is not one
+	tuple_names: tuple[str, ...]
 
+	# False when the line could not be read or parsed
+	parsed: bool
+
+
+_NO_INFO = _LineInfo(None, None, (), False)
+
+# (filename, lineno) -> _LineInfo, invalidated on mtime change
+_line_info_cache: dict[tuple[str, int], _LineInfo] = {}
+_file_stamp_cache: dict[str, float] = {}
+
+
+def _file_stamp(filename: str) -> float:
 	try:
-		node = ast.parse(source)
-	except SyntaxError:
-		return False
-
-	for stmt in node.body:
-		if isinstance(stmt, ast.Assign) and _is_direct_log_call(stmt.value):
-			return True
-
-		if (
-			isinstance(stmt, ast.AnnAssign)
-			and stmt.value is not None
-			and _is_direct_log_call(stmt.value)
-		):
-			return True
-
-	return False
+		return os.stat(filename).st_mtime
+	except OSError:
+		return 0.0
 
 
-def _get_call_index_in_line(frame: FrameType):
-	"""
-	Track which log() call this is on the current line
+def _invalidate_if_stale(filename: str) -> None:
+	"""Drop cached line info when the file changed on disk"""
 
-	Example:
-		a, b = log("x"), log("y")
+	stamp = _file_stamp(filename)
+	if _file_stamp_cache.get(filename) == stamp:
+		return
 
-	First call -> index 0 -> maps to 'a'
-	Second call ->  index 1 -> maps to 'b'
-	"""
+	_file_stamp_cache[filename] = stamp
+	_ = _module_cache.pop(filename, None)
 
-	key = (frame.f_code.co_filename, frame.f_lineno)
-
-	idx = _call_counter_per_line.get(key, 0)
-	_call_counter_per_line[key] = idx + 1
-
-	return idx
+	for key in [k for k in _line_info_cache if k[0] == filename]:
+		del _line_info_cache[key]
 
 
-def _infer_name_from_frame(
-	frame: FrameType | None, default: str = "PLACEHOLDER"
-) -> str | None:
-	"""
-	Infer variable name from a simple single-line assignment
+def _targets_of(node: ast.Assign | ast.AnnAssign) -> tuple[str | None, tuple[str, ...]]:
+	"""Split an assignment's targets into (single name, tuple names)"""
 
-	Only works for straightforward cases like x = log(...)
-	"""
+	if isinstance(node, ast.AnnAssign):
+		target = node.target
+		return (target.id if isinstance(target, ast.Name) else None), ()
 
-	if frame is None:
-		return default
+	if not node.targets:
+		return None, ()
 
-	filename = frame.f_code.co_filename
-	lineno = frame.f_lineno
-	source = linecache.getline(filename, lineno).strip()
+	target = node.targets[0]
 
-	if not source:
-		return default
+	if isinstance(target, ast.Name):
+		return target.id, ()
 
-	try:
-		node = ast.parse(source)
-	except SyntaxError:
-		return default
+	if isinstance(target, ast.Tuple):
+		names = tuple(el.id for el in target.elts if isinstance(el, ast.Name))
+		return None, names
 
-	if not node.body:
-		return default
-
-	stmt = node.body[0]
-
-	if isinstance(stmt, ast.Assign) and stmt.targets:
-		target = stmt.targets[0]
-
-		if isinstance(target, ast.Name):
-			return target.id
-
-	if isinstance(stmt, ast.AnnAssign):
-		target = stmt.target
-
-		if isinstance(target, ast.Name):
-			return target.id
-
-	# Name isn't found, should not be returning default!
-	# Probably a <| l> statement
-	return None
+	return None, ()
 
 
-def _infer_callsite_name(default: str = "set") -> str:
-	frame = _caller_frame()
-	try:
-		return _infer_name_from_frame(frame, default)
-	finally:
-		del frame
-
-
-def _get_assignment_target_for_call(frame: FrameType | None) -> str | None:
-	"""
-	Main name inference location
-
-	Attempts to determine which variable a log(...) call is assigned to
-
-	Strategy:
-	1. Fast path -> parse current line only
-	2. Fallback -> parse entire file AST for multi-line statements
-	"""
-
-	if frame is None:
+def _info_from_statement(stmt: ast.AST) -> _LineInfo | None:
+	if not isinstance(stmt, (ast.Assign, ast.AnnAssign)):
 		return None
 
-	filename = frame.f_code.co_filename
-	lineno = frame.f_lineno
+	value = stmt.value
+	if value is None:
+		return None
 
-	# Single line
+	single, tuple_names = _targets_of(stmt)
+
+	log_single = None
+
+	# x = log(...)
+	if _is_direct_log_call(value):
+		log_single = single
+
+	# x = something | l
+	elif (
+		isinstance(value, ast.BinOp)
+		and isinstance(value.op, ast.BitOr)
+		and isinstance(value.right, ast.Name)
+		and value.right.id == config._g_log_pipe_name
+	):
+		log_single = single
+
+	# a, b = log(...), log(...) tuple_names carries the mapping
+	if isinstance(value, ast.Tuple) and tuple_names:
+		return _LineInfo(log_single, single, tuple_names, True)
+
+	return _LineInfo(log_single, single, (), True)
+
+
+def _analyze_line(filename: str, lineno: int) -> _LineInfo:
+	"""What the statement at filename:lineno assigns to"""
+
+	if not filename:
+		return _NO_INFO
+
+	_invalidate_if_stale(filename)
+
+	key = (filename, lineno)
+	cached = _line_info_cache.get(key)
+	if cached is not None:
+		return cached
+
+	info = _NO_INFO
+
+	# Fast path: one line
 	source = linecache.getline(filename, lineno).strip()
 	if source:
 		try:
@@ -176,121 +159,113 @@ def _get_assignment_target_for_call(frame: FrameType | None) -> str | None:
 		except SyntaxError:
 			node = None
 
-		if node and node.body:
-			stmt = node.body[0]
+		if node is not None and node.body:
+			parsed = _info_from_statement(node.body[0])
+			# Parsed fine but not an assignment
+			info = parsed if parsed is not None else _LineInfo(None, None, (), True)
 
-			if isinstance(stmt, ast.Assign):
-				targets = stmt.targets
+	# Slow path: multi-line statement, parse the module once
+	if info.any_single is None and not info.tuple_names:
+		module = _module_ast(filename)
 
-				# Simple
-				if isinstance(stmt.value, ast.Call) and _is_direct_log_call(stmt.value):
-					if isinstance(targets[0], ast.Name):
-						return targets[0].id
+		if module is not None:
+			for node in ast.walk(module):
+				if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+					continue
 
-				# Pipe
-				if isinstance(stmt.value, ast.BinOp):
-					if isinstance(stmt.value.op, ast.BitOr):
-						if (
-							isinstance(stmt.value.right, ast.Name)
-							and stmt.value.right.id == config._g_log_pipe_name
-						):
-							if isinstance(stmt.targets[0], ast.Name):
-								return stmt.targets[0].id
+				start = node.lineno
+				end = getattr(node, "end_lineno", start)
 
-				# Tuple
-				if isinstance(stmt.value, ast.Tuple):
-					targets_list = (
-						stmt.targets[0].elts
-						if isinstance(stmt.targets[0], ast.Tuple)
-						else []
-					)
-					call_index = _get_call_index_in_line(frame)
+				if not (start <= lineno <= end):
+					continue
 
-					if call_index is not None and call_index < len(targets_list):
-						target = targets_list[call_index]
-						if isinstance(target, ast.Name):
-							return target.id
+				parsed = _info_from_statement(node)
+				if parsed is not None and (parsed.any_single or parsed.tuple_names):
+					info = parsed
+					break
 
-	# Multiline AST -> complex statement (multiline)
-	try:
-		with open(filename, "r") as f:
-			full_source = f.read()
-	except OSError:
-		return None
+	_line_info_cache[key] = info
+	return info
+
+
+# filename -> module AST, invalidated with the line cache
+_module_cache: dict[str, ast.Module | None] = {}
+
+
+def _module_ast(filename: str) -> ast.Module | None:
+	if filename in _module_cache:
+		return _module_cache[filename]
+
+	tree: ast.Module | None
 
 	try:
-		tree = ast.parse(full_source)
-	except SyntaxError:
-		return None
+		with open(filename, "r", encoding="utf-8") as f:
+			tree = ast.parse(f.read())
+	except (OSError, SyntaxError, ValueError):
+		tree = None
 
-	for node in ast.walk(tree):
-		if isinstance(node, ast.Assign):
-			# Check if this assignment spans current line
-			if not (node.lineno <= lineno <= getattr(node, "end_lineno", node.lineno)):
-				continue
+	_module_cache[filename] = tree
+	return tree
 
-			# Simple assignments
-			if isinstance(node.value, ast.Call) and _is_direct_log_call(node.value):
-				target = node.targets[0]
-				if isinstance(target, ast.Name):
-					return target.id
 
-			# Tuples
-			if isinstance(node.value, ast.Tuple):
-				targets = (
-					node.targets[0].elts if isinstance(node.targets[0], ast.Tuple) else []
-				)
+def _get_call_index_in_line(frame: FrameType, target_count: int) -> int:
+	"""
+	Which log() call this is on the current line
+	`a, b = log("x"), log("y")` -> 0 for a, 1 for b; wraps so loops restart at 0
+	"""
 
-				call_index = _get_call_index_in_line(frame)
+	if target_count <= 0:
+		return 0
 
-				if call_index is not None and call_index < len(targets):
-					target = targets[call_index]
-					if isinstance(target, ast.Name):
-						return target.id
+	key = (frame.f_code.co_filename, frame.f_lineno)
 
+	idx = _call_counter_per_line.get(key, 0)
+	_call_counter_per_line[key] = (idx + 1) % target_count
+
+	return idx % target_count
+
+
+def _infer_name_from_frame(
+	frame: FrameType | None, default: str = "PLACEHOLDER"
+) -> str | None:
+	"""Infer the variable name, handling `x = ...` and `a, b = ..., ...`"""
+
+	if frame is None:
+		return default
+
+	info = _analyze_line(frame.f_code.co_filename, frame.f_lineno)
+
+	if not info.parsed:
+		return default
+
+	if info.tuple_names:
+		return info.tuple_names[_get_call_index_in_line(frame, len(info.tuple_names))]
+
+	if info.any_single:
+		return info.any_single
+
+	# Not found, probably a `| l` statement, so not the default
 	return None
 
 
-def _get_assignment_target_for_pipe(frame: FrameType | None) -> str | None:
+def _get_assignment_target_for_call(frame: FrameType | None) -> str | None:
+	"""Which variable a log(...) call is assigned to"""
+
 	if frame is None:
 		return None
 
-	filename = frame.f_code.co_filename
-	lineno = frame.f_lineno
-	source = linecache.getline(filename, lineno).strip()
+	info = _analyze_line(frame.f_code.co_filename, frame.f_lineno)
 
-	if not source:
-		return None
+	if info.tuple_names:
+		return info.tuple_names[_get_call_index_in_line(frame, len(info.tuple_names))]
 
-	try:
-		node = ast.parse(source)
-	except SyntaxError:
-		return None
-
-	if not node.body:
-		return None
-
-	stmt = node.body[0]
-
-	if isinstance(stmt, ast.Assign):
-		if isinstance(stmt.value, ast.BinOp) and isinstance(stmt.value.op, ast.BitOr):
-			right = stmt.value.right
-
-			if isinstance(right, ast.Name) and right.id == "l":
-				target = stmt.targets[0]
-				if isinstance(target, ast.Name):
-					return target.id
-
-	return None
+	return info.log_single
 
 
 __all__ = [
 	"_is_user_code",
-	"_is_assigned_call",
 	"_is_direct_log_call",
-	"_infer_callsite_name",
 	"_infer_name_from_frame",
 	"_get_call_index_in_line",
 	"_get_assignment_target_for_call",
-	"_get_assignment_target_for_pipe",
 ]

@@ -1,4 +1,4 @@
-![PyPI](https://img.shields.io/pypi/v/logeye?cachebust=1776205194)
+![PyPI](https://img.shields.io/pypi/v/logeye?cachebust=1787006858)
 ![Python](https://img.shields.io/pypi/pyversions/logeye)
 ![License](https://img.shields.io/github/license/MattFor/LogEye)
 
@@ -18,18 +18,23 @@ pip install logeye
 ```
 
 ## Quick example
+
 ```python
 from logeye import log
+
 
 @log
 def add(a, b):
 	return a + b
 
+
 add(2, 3)
+
 
 @log(mode="edu")
 def add_edu(a, b):
 	return a + b
+
 
 add_edu(2, 3)
 ```
@@ -51,12 +56,12 @@ Output:
 
 - [Who is it for?](#who-is-it-for)
 - [What does it do?](#what-does-it-do)
-  - [What exactly does it track?](#what-exactly-does-it-track) 
+    - [What exactly does it track?](#what-exactly-does-it-track)
 - [Quick start](#quick-start)
 - [Educational Mode](#educational-mode)
-  - [Before vs After](#before-vs-after)
-  - [What changes in educational mode](#what-changes-in-educational-mode)
-  - [Example - Educational Factorial](#example---educational-factorial)
+    - [Before vs After](#before-vs-after)
+    - [What changes in educational mode](#what-changes-in-educational-mode)
+    - [Example - Educational Factorial](#example---educational-factorial)
 - [Logging functions](#logging-functions)
 - [Advanced function logging](#advanced-function-logging)
 - [Logging objects](#logging-objects)
@@ -82,12 +87,15 @@ Perfect for:
 No more scattered `print()` calls. No debugger setup. Simply run your code and see everything.
 
 Why keep doing this?
+
 ```python
 print(x)
 print(y)
 print(queue)
 ```
+
 When a single `| l` suffices?
+
 ```commandline
 Added (1, 'B') to queue -> [(1, 'B')]
 Sorted queue -> [(1, 'B'), (4, 'C')]
@@ -184,8 +192,7 @@ set_mode("edu")
 
 # Locally
 @log(mode="edu")
-def my_function():
-	...
+def my_function(): ...
 ```
 
 ## Before vs After
@@ -834,12 +841,7 @@ def dijkstra(graph, start):
 	return distances
 
 
-graph = {
-	"A": {"B": 1, "C": 4},
-	"B": {"C": 2, "D": 5},
-	"C": {"D": 1},
-	"D": {}
-}
+graph = {"A": {"B": 1, "C": 4}, "B": {"C": 2, "D": 5}, "C": {"D": 1}, "D": {}}
 
 dijkstra(graph, "A")
 ```
@@ -950,5 +952,5 @@ MIT License © 2026
 
 See [LICENSE](LICENSE) for details.
 
-Version 1.5.2
+Version 1.6.0
 

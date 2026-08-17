@@ -1,15 +1,53 @@
 from __future__ import annotations
 
 import os
+import inspect
 
 from . import config
 from string import Template
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Sized, Any
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, TypeAlias, cast
 from .introspection.frames import _caller_frame, _get_location
 
 if TYPE_CHECKING:
 	from .core import Kind
+
+# Returns the line to write, or None to drop the event
+Formatter: TypeAlias = Callable[..., "str | None"]
+
+# (positional argument count, accepts display flags)
+FormatterShape: TypeAlias = tuple[int, bool]
+
+
+def _payload_of(value: object) -> dict[str, object] | None:
+	"""View an emitted value as its payload dict; logeye builds them, str-keyed"""
+
+	if isinstance(value, dict):
+		# noinspection PyUnnecessaryCast
+		return cast("dict[str, object]", value)
+
+	return None
+
+
+def _payload_args(payload: Mapping[str, object]) -> tuple[object, ...]:
+	"""The `args` entry of a payload, as a tuple"""
+
+	args = payload.get("args")
+	return tuple(cast("Iterable[object]", args)) if args else ()
+
+
+def _payload_kwargs(payload: Mapping[str, object]) -> dict[str, object]:
+	"""The `kwargs` entry of a payload, as a dict"""
+
+	kwargs = payload.get("kwargs")
+	return dict(cast("Mapping[str, object]", kwargs)) if kwargs else {}
+
+
+def _payload_defaults(payload: Mapping[str, object]) -> dict[str, object]:
+	"""The `defaults` entry of a nested-definition payload, as a dict"""
+
+	defaults = payload.get("defaults")
+	return dict(cast("Mapping[str, object]", defaults)) if defaults else {}
 
 
 def _last_name(name: str) -> str:
@@ -25,21 +63,63 @@ def _display_name(name: str) -> str:
 	return ".".join(parts) if parts else name
 
 
-def _pretty_arg(a):
+def _pretty_arg(a: object) -> str:
 	if hasattr(a, "__class__") and hasattr(a, "__dict__"):
 		return a.__class__.__name__
+
 	return repr(a)
 
 
 def _path(obj: object) -> str:
-	"""
-	Return a readable name/path for a callable or object
-	"""
+	"""Readable name/path for a callable or object"""
 
-	if hasattr(obj, "__qualname__"):
-		return obj.__qualname__.replace(".<locals>.", ".")
+	qualname = getattr(obj, "__qualname__", None)
+	if isinstance(qualname, str):
+		return qualname.replace(".<locals>.", ".")
 
-	return getattr(obj, "__name__", str(obj))
+	name = getattr(obj, "__name__", None)
+	return name if isinstance(name, str) else str(obj)
+
+
+def _format_op_arguments(op: str, payload: dict[str, object]) -> str:
+	"""Render a mutation's arguments so the log reads like the call"""
+
+	val = payload.get("value")
+
+	if op == "sort":
+		args = _payload_args(payload)
+		kwargs = _payload_kwargs(payload)
+
+		return ", ".join(
+			[
+				*(repr(a) for a in args),
+				*(f"{k}={v!r}" for k, v in kwargs.items()),
+			]
+		)
+
+	if op == "insert":
+		return f"{payload.get('index')!r}, {val!r}"
+
+	if op == "setdefault":
+		return f"{payload.get('key')!r}, {val!r}"
+
+	if op == "delitem":
+		return repr(payload.get("key"))
+
+	if op == "imul":
+		return repr(payload.get("factor"))
+
+	if op == "pop":
+		if "key" in payload:
+			return repr(payload.get("key"))
+
+		index = payload.get("index")
+		return "" if index is None else repr(index)
+
+	if op in ("clear", "reverse", "popitem"):
+		return ""
+
+	return repr(val) if "value" in payload else ""
 
 
 def _format_change_payload(
@@ -57,34 +137,45 @@ def _format_change_payload(
 
 	if op in ("setattr", "setitem"):
 		if _is_simple_value(val):
-			# Simple assignment -> more detail would overcomplicate, is also hard on the eyes
+			# More detail here would just be noise
 			return f"{prefix}{kind_prefix}{name} = {val!r}"
 
-		# Complex assignment -> more detail
 		return f"{prefix}{kind_prefix}{name} = {val!r} -> {state}"
 
-	# Skip other operations (kinds)
-	return None
+	if not isinstance(op, str):
+		return None
+
+	# Reads as "what was called -> what it produced"
+	call = f"{name}.{op}({_format_op_arguments(op, payload)})"
+
+	if op in ("pop", "popitem"):
+		return f"{prefix}{kind_prefix}{call} -> {val!r} | {state!r}"
+
+	return f"{prefix}{kind_prefix}{call} -> {state!r}"
 
 
 def _format_call_payload(args: tuple[object, ...], kwargs: dict[str, object]) -> str:
-	parts = []
-
-	# TODO: What should we do here? cleaner display or more info?
+	parts: list[str] = []
 
 	if args:
 		parts.append(f"args=({', '.join(repr(a) for a in args)})")
-	else:
-		# parts.append("args=()")
-		pass
 
 	if kwargs:
 		parts.append(f"kwargs={kwargs!r}")
-	else:
-		# parts.append("kwargs={}")
-		pass
 
 	return " | ".join(parts)
+
+
+def _format_call_line(
+	prefix: str, kind: str, func_name: str, payload_str: str, tail: str
+) -> str:
+	"""Join a call line, skipping the payload gap when there are no arguments"""
+	head = f"{prefix}({kind}) {func_name}"
+
+	if payload_str:
+		head += f" {payload_str}"
+
+	return f"{head} {tail}"
 
 
 def _default_formatter(
@@ -98,10 +189,12 @@ def _default_formatter(
 	show_time: bool = True,
 	show_file: bool = True,
 	show_lineno: bool = True,
-):
-	parts = []
+) -> str | None:
+	parts: list[str] = []
 
-	is_edu_mode = config._g_log_mode == "educational"
+	payload = _payload_of(value)
+
+	is_edu_mode = config._mode() == "educational"
 
 	if is_edu_mode:
 		show_file = False
@@ -132,12 +225,12 @@ def _default_formatter(
 
 	if is_edu_mode:
 		if kind in ("set", "change"):
-			is_private = isinstance(value, dict) and value.get("type") == "private"
+			is_private = payload is not None and payload.get("type") == "private"
 
-			if isinstance(value, dict) and "op" in value:
-				op = value["op"]
-				val = value.get("value")
-				state = value.get("state")
+			if payload is not None and "op" in payload:
+				op = payload["op"]
+				val = payload.get("value")
+				state = payload.get("state")
 
 				short_name = _last_name(name)
 
@@ -145,17 +238,17 @@ def _default_formatter(
 					return f"{prefix}Added {val} to the end of {short_name}"
 
 				if op == "extend":
-					if not val:
+					added: Sequence[object] = cast("Sequence[object]", val) if val else ()
+
+					if not added:
 						return None
 
-					if len(val) == 1:
-						return f"{prefix}Added {val[0]} to {short_name}"
+					if len(added) == 1:
+						return f"{prefix}Added {added[0]} to {short_name}"
 
-					return f"{prefix}Added {val} to {short_name}"
+					return f"{prefix}Added {added} to {short_name}"
 
-				# NOTE: Include full name?
 				if op == "setitem":
-					# return f"{prefix}Set {short_name} = {val}"
 					return f"{prefix}Set {_display_name(name)} = {val}"
 
 				if op == "pop":
@@ -171,24 +264,26 @@ def _default_formatter(
 					return f"{prefix}Sorted {short_name} -> {state}"
 
 				if op == "insert":
-					idx = value.get("index")
+					idx = payload.get("index")
 					return f"{prefix}Inserted {val} at index {idx} in {short_name}"
 
 			if (
 				kind == "set"
-				and isinstance(value, dict)
-				and value.get("type") == "function"
+				and payload is not None
+				and payload.get("type") == "function"
 			):
-				defaults = value.get("defaults", {})
+				defaults = _payload_defaults(payload)
 				short_name = _display_name(name)
 
 				if defaults:
-					args = ", ".join(f"{k}={v!r}" for k, v in defaults.items())
-					return f"{prefix}Defined {short_name}({args})"
+					rendered_defaults = ", ".join(
+						f"{k}={v!r}" for k, v in defaults.items()
+					)
+					return f"{prefix}Defined {short_name}({rendered_defaults})"
 
 				return f"{prefix}Defined {short_name}()"
 
-			actual = value["value"] if is_private else value
+			actual = payload["value"] if is_private and payload is not None else value
 			prefix_priv = "<priv> " if is_private else ""
 
 			if kind == "set":
@@ -197,12 +292,12 @@ def _default_formatter(
 			return f"{prefix}{prefix_priv}{_display_name(name)} = {actual!r}"
 
 		if kind == "call":
-			if isinstance(value, dict) and value.get("type") == "class_init":
-				cls = value["class_name"].split(".")[-1]
-				inst = value["instance_name"]
+			if payload is not None and payload.get("type") == "class_init":
+				cls = str(payload.get("class_name", "")).split(".")[-1]
+				inst = payload.get("instance_name")
 
-				args = value.get("args", ())
-				kwargs = value.get("kwargs", {})
+				args = _payload_args(payload)
+				kwargs = _payload_kwargs(payload)
 
 				parts = []
 
@@ -220,14 +315,14 @@ def _default_formatter(
 
 			func_name = _display_name(name)
 
-			if isinstance(value, dict):
-				args = value.get("args", ())
-				kwargs = value.get("kwargs", {})
+			if payload is not None:
+				args = _payload_args(payload)
+				kwargs = _payload_kwargs(payload)
 
 				if args and hasattr(args[0], "_logeye_name"):
 					args = args[1:]
 
-				arg_parts = []
+				arg_parts: list[str] = []
 				if args:
 					arg_parts.append(", ".join(_pretty_arg(a) for a in args))
 				if kwargs:
@@ -237,15 +332,36 @@ def _default_formatter(
 
 			return f"{prefix}Calling {func_name}()"
 
+		if kind == "raise":
+			if payload is not None:
+				exc = payload.get("exception")
+				exc_type = payload.get("exception_type", type(exc).__name__)
+				call_sig = payload.get("call_signature")
+
+				func_name = (
+					_display_name(str(call_sig).split("(")[0])
+					if call_sig
+					else _display_name(name)
+				)
+
+				return f"{prefix}{func_name}() raised {exc_type}: {exc}"
+
+			return f"{prefix}{_display_name(name)}() raised {value!r}"
+
+		if kind == "yield":
+			result = payload.get("value") if payload is not None else value
+			return f"{prefix}{_display_name(name)} yielded {result!r}"
+
 		if kind == "return":
-			if isinstance(value, dict):
-				result = value.get("value")
-				call_sig = value.get("call_signature")
+			if payload is not None:
+				result = payload.get("value")
+				call_sig = payload.get("call_signature")
 
 				if call_sig:
-					func_name = call_sig.split("(")[0]
+					signature = str(call_sig)
+					func_name = signature.split("(")[0]
 					clean_name = _display_name(func_name)
-					args_part = call_sig[len(func_name) :]
+					args_part = signature[len(func_name) :]
 
 					return f"{prefix}{clean_name}{args_part} returned {result!r}"
 
@@ -261,31 +377,63 @@ def _default_formatter(
 
 		return f"{prefix}{value}"
 
-	if kind == "change" and isinstance(value, dict) and "op" in value:
-		formatted = _format_change_payload(name, value, prefix)
+	if kind == "change" and payload is not None and "op" in payload:
+		formatted = _format_change_payload(name, payload, prefix)
 		if formatted is not None:
 			return formatted
 
-	if isinstance(value, dict) and value.get("type") == "private":
-		value = value["value"]
+	if payload is not None and payload.get("type") == "private":
+		value = payload["value"]
+		payload = _payload_of(value)
 
-	if kind == "return" and isinstance(value, dict) and "value" in value:
-		result = value["value"]
+	# Nested definition; render signature not payload dict
+	if kind == "set" and payload is not None and payload.get("type") == "function":
+		defaults = _payload_defaults(payload)
+		signature = ", ".join(f"{k}={v!r}" for k, v in defaults.items())
 
-		args = value.get("args", ())
-		kwargs = value.get("kwargs", {})
+		return f"{prefix}({kind}) {_display_name(name)}({signature})"
+
+	if kind == "raise" and payload is not None:
+		exc = payload.get("exception")
+		exc_type = payload.get("exception_type", type(exc).__name__)
+
+		args = _payload_args(payload)
+		kwargs = _payload_kwargs(payload)
 
 		func_name = _display_name(name)
 		payload_str = _format_call_payload(args, kwargs)
 
-		return f"{prefix}({kind}) {func_name} {payload_str} -> {result!r}"
+		return _format_call_line(
+			prefix, kind, func_name, payload_str, f"-! {exc_type}: {exc}"
+		)
 
-	if kind == "call" and isinstance(value, dict):
-		args = value.get("args", ())
-		kwargs = value.get("kwargs", {})
-		target = value.get("target")
+	if kind == "yield" and payload is not None and "value" in payload:
+		func_name = _display_name(name)
+		payload_str = _format_call_payload(
+			_payload_args(payload), _payload_kwargs(payload)
+		)
 
-		# Remove self/cls
+		return _format_call_line(
+			prefix, kind, func_name, payload_str, f"-> {payload['value']!r}"
+		)
+
+	if kind == "return" and payload is not None and "value" in payload:
+		result = payload["value"]
+
+		args = _payload_args(payload)
+		kwargs = _payload_kwargs(payload)
+
+		func_name = _display_name(name)
+		payload_str = _format_call_payload(args, kwargs)
+
+		return _format_call_line(prefix, kind, func_name, payload_str, f"-> {result!r}")
+
+	if kind == "call" and payload is not None:
+		args = _payload_args(payload)
+		kwargs = _payload_kwargs(payload)
+		target = payload.get("target")
+
+		# Drop self / cls
 		if args:
 			first = args[0]
 			if hasattr(first, "_logeye_name") or isinstance(first, type):
@@ -302,7 +450,43 @@ def _default_formatter(
 	return f"{prefix}({kind}) {name} = {value!r}"
 
 
-_formatter = _default_formatter
+_DISPLAY_FLAGS = ("show_time", "show_file", "show_lineno")
+
+# The full argument list a formatter may ask for
+_FORMATTER_ARGUMENTS = 6
+
+
+def _formatter_call_shape(func: Formatter) -> FormatterShape:
+	try:
+		params = list(inspect.signature(func).parameters.values())
+	except (TypeError, ValueError):
+		# C callables expose no signature; assume full form
+		return _FORMATTER_ARGUMENTS, False
+
+	names = {p.name for p in params}
+
+	if any(p.kind is p.VAR_POSITIONAL for p in params):
+		positional = _FORMATTER_ARGUMENTS
+	else:
+		positional = min(
+			sum(
+				1
+				for p in params
+				if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+				and p.name not in _DISPLAY_FLAGS
+			),
+			_FORMATTER_ARGUMENTS,
+		)
+
+	takes_flags = any(p.kind is p.VAR_KEYWORD for p in params) or all(
+		flag in names for flag in _DISPLAY_FLAGS
+	)
+
+	return positional, takes_flags
+
+
+_formatter: Formatter = _default_formatter
+_formatter_shape: FormatterShape = (_FORMATTER_ARGUMENTS, True)
 
 
 def _format_path(filename: str | None) -> str:
@@ -324,14 +508,18 @@ def _format_path(filename: str | None) -> str:
 	return filename
 
 
-def set_output_formatter(func: Callable[..., object]) -> None:
-	global _formatter
+def set_output_formatter(func: Formatter) -> None:
+	"""Replace the line formatter"""
+
+	global _formatter, _formatter_shape
 	_formatter = func
+	_formatter_shape = _formatter_call_shape(func)
 
 
 def reset_output_formatter() -> None:
-	global _formatter
+	global _formatter, _formatter_shape
 	_formatter = _default_formatter
+	_formatter_shape = (_FORMATTER_ARGUMENTS, True)
 
 
 def _format_message(text: str, *args: object, **kwargs: object) -> str:
@@ -343,11 +531,11 @@ def _format_message(text: str, *args: object, **kwargs: object) -> str:
 	frame = _caller_frame()
 	try:
 		if frame is not None:
-			namespace = {}
+			namespace: dict[str, object] = {}
 			namespace.update(frame.f_globals)
 			namespace.update(frame.f_locals)
 
-			filename, lineno = _get_location(frame)
+			filename, _ = _get_location(frame)
 			namespace["apath"] = filename or ""
 			namespace["rpath"] = (
 				os.path.relpath(filename, config._g_project_root) if filename else ""
@@ -367,3 +555,16 @@ def _format_message(text: str, *args: object, **kwargs: object) -> str:
 		del frame
 
 	return text
+
+
+__all__ = [
+	"Formatter",
+	"FormatterShape",
+	"set_output_formatter",
+	"reset_output_formatter",
+	"_path",
+	"_payload_of",
+	"_default_formatter",
+	"_format_message",
+	"_format_path",
+]

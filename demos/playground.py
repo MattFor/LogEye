@@ -1,4 +1,4 @@
-from logeye import log, l, watch
+from logeye import log, l, watch  # noqa: F401
 
 #
 # Here I just post whatever is fun to try or to test new features!

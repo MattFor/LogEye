@@ -1,24 +1,67 @@
 from __future__ import annotations
+
+import io
+import types
+
 from collections.abc import (
 	Callable,
 	ItemsView,
 	Iterable,
 	KeysView,
 	Mapping,
+	Set as AbstractSet,
 	ValuesView,
 	Iterator,
 )
 
 from . import config
+from ._compat import override
 from .emmiter import _emit
 from .formatting import _path
 from .introspection import _caller_frame, _get_location
-from typing import Generic, ParamSpec, SupportsIndex, TypeVar, overload
+from .watcher import _differs
+from typing import (
+	TYPE_CHECKING,
+	Generic,
+	ParamSpec,
+	SupportsIndex,
+	TypeVar,
+	cast,
+	overload,
+)
+
+if TYPE_CHECKING:
+	from _typeshed import SupportsKeysAndGetItem
 
 
 class _BaseLogged:
-	_log_name: str
+	# Set per instance via object.__setattr__, bypassing the logging __setattr__
+	_log_name: str = "set"
 
+
+# `...` is a legitimate value a caller may pass
+_MISSING: object = object()
+
+# Marks an object mid-wrap, so a reference back to it reads as a cycle
+_IN_PROGRESS: object = object()
+
+# Have a __dict__ but are not user data
+_OPAQUE_TYPES = (
+	types.ModuleType,
+	types.GeneratorType,
+	types.CoroutineType,
+	types.AsyncGeneratorType,
+	types.FrameType,
+	types.TracebackType,
+	types.MappingProxyType,
+	BaseException,
+	io.IOBase,
+)
+
+_SCALAR_TYPES = (str, bytes, int, float, bool, complex, type(None))
+
+# Traversal budget for patho graphs
+_MAX_WRAPPED_NODES = 2048
 
 P = ParamSpec("P")
 
@@ -27,62 +70,84 @@ K = TypeVar("K")
 V = TypeVar("V")
 L = TypeVar("L", bound=_BaseLogged)
 
-
-@overload
-def _unwrap_value(value: LoggedObject[T]) -> dict[str, object]: ...
-
-
-@overload
-def _unwrap_value(value: LoggedList[T]) -> list[T]: ...
+# dict.pop fallback, independent of the value type
+D = TypeVar("D")
 
 
 @overload
-def _unwrap_value(value: LoggedDict[K, V] | dict[K, V]) -> dict[K, V]: ...
+def _unwrap_value(
+	value: LoggedObject[T], _seen: set[int] | None = ...
+) -> dict[str, object]: ...
 
 
 @overload
-def _unwrap_value(value: LoggedSet[T] | set[T]) -> set[T]: ...
+def _unwrap_value(value: LoggedList[T], _seen: set[int] | None = ...) -> list[T]: ...
 
 
 @overload
-def _unwrap_value(value: tuple[T, ...]) -> tuple[T, ...]: ...
+def _unwrap_value(
+	value: LoggedDict[K, V] | dict[K, V], _seen: set[int] | None = ...
+) -> dict[K, V]: ...
 
 
 @overload
-def _unwrap_value(value: object) -> object: ...
+def _unwrap_value(
+	value: LoggedSet[T] | set[T], _seen: set[int] | None = ...
+) -> set[T]: ...
 
 
-def _unwrap_value(value: object):
-	"""
-	Recursively unwrap logged containers into plain Python values.
-	Used for log payloads so mutation logs stay readable
-	"""
+@overload
+def _unwrap_value(
+	value: tuple[T, ...], _seen: set[int] | None = ...
+) -> tuple[T, ...]: ...
 
-	if isinstance(value, LoggedObject):
-		return value.to_dict()
 
-	if isinstance(value, LoggedList):
-		return [_unwrap_value(v) for v in list(value)]
+@overload
+def _unwrap_value(value: object, _seen: set[int] | None = ...) -> object: ...
 
-	if isinstance(value, LoggedDict):
-		return {k: _unwrap_value(v) for k, v in dict.items(value)}
 
-	if isinstance(value, LoggedSet):
-		return {_unwrap_value(v) for v in set(value)}
+def _unwrap_value(value: object, _seen: set[int] | None = None) -> object:
+	"""Recursively unwrap logged containers into plain values, rendering cycles as a marker"""
 
-	if isinstance(value, list):
-		return [_unwrap_value(v) for v in value]
+	if isinstance(value, _SCALAR_TYPES):
+		return value
 
-	if isinstance(value, tuple):
-		return tuple(_unwrap_value(v) for v in value)
+	if _seen is None:
+		_seen = set()
 
-	if isinstance(value, set):
-		return {_unwrap_value(v) for v in value}
+	obj_id = id(value)
+	if obj_id in _seen:
+		return "<cycle>"
 
-	if isinstance(value, dict):
-		return {k: _unwrap_value(v) for k, v in value.items()}
+	_seen.add(obj_id)
+	try:
+		# Display path: every branch rebuilds a plain container
+		if isinstance(value, LoggedObject):
+			# noinspection PyUnnecessaryCast
+			return cast("LoggedObject[object]", value)._unwrap(_seen)
 
-	return value
+		if isinstance(value, (LoggedList, list)):
+			# noinspection PyUnnecessaryCast
+			return [_unwrap_value(v, _seen) for v in cast("list[object]", value)]
+
+		if isinstance(value, (LoggedDict, dict)):
+			# noinspection PyUnnecessaryCast
+			items = cast("dict[object, object]", value).items()
+			return {k: _unwrap_value(v, _seen) for k, v in items}
+
+		if isinstance(value, (LoggedSet, set)):
+			# noinspection PyUnnecessaryCast
+			return {_unwrap_value(v, _seen) for v in cast("set[object]", value)}
+
+		if isinstance(value, tuple):
+			# noinspection PyUnnecessaryCast
+			return tuple(
+				_unwrap_value(v, _seen) for v in cast("tuple[object, ...]", value)
+			)
+
+		return value
+	finally:
+		_seen.discard(obj_id)
 
 
 def _emit_change(
@@ -92,10 +157,8 @@ def _emit_change(
 	filename: str | None = None,
 	lineno: int | None = None,
 	**details: object,
-):
-	"""
-	Emit a mutation event with a readable payload
-	"""
+) -> None:
+	"""Emit a mutation event with a readable payload"""
 
 	if not config._g_enabled:
 		return
@@ -113,134 +176,149 @@ def _emit_change(
 
 @overload
 def _wrap_value(
-	value: Callable[P, T], name: str | None = None, seen: set[int] | None = None
+	value: Callable[P, T], name: str | None = ..., seen: dict[int, object] | None = ...
 ) -> Callable[P, T]: ...
 
 
 @overload
 def _wrap_value(
-	value: list[T], name: str | None = ..., seen: set[int] | None = None
+	value: list[T], name: str | None = ..., seen: dict[int, object] | None = ...
 ) -> LoggedList[T]: ...
 
 
 @overload
 def _wrap_value(
-	value: Mapping[K, V], name: str | None = ..., seen: set[int] | None = None
+	value: Mapping[K, V], name: str | None = ..., seen: dict[int, object] | None = ...
 ) -> LoggedDict[K, V]: ...
 
 
 @overload
 def _wrap_value(
-	value: set[T], name: str | None = ..., seen: set[int] | None = None
+	value: set[T], name: str | None = ..., seen: dict[int, object] | None = ...
 ) -> LoggedSet[T]: ...
 
 
 @overload
-def _wrap_value(value: L, name: str | None = ..., seen: set[int] | None = None) -> L: ...
+def _wrap_value(
+	value: L, name: str | None = ..., seen: dict[int, object] | None = ...
+) -> L: ...
 
 
 @overload
-def _wrap_value(value: T, name: str | None = ..., seen: set[int] | None = None) -> T: ...
-
-
-# TODO: Maybe use a memoization map for recursive calls so we can maintain the actual values?
-# TODO: Kind of hard to do but may be worth it later
 def _wrap_value(
-	value: object, name: str | None = None, seen: set[int] | None = None
+	value: T, name: str | None = ..., seen: dict[int, object] | None = ...
+) -> T: ...
+
+
+def _wrap_value(
+	value: object, name: str | None = None, seen: dict[int, object] | None = None
 ) -> object:
-	"""
-	Recursively wrap values so nested structures are tracked
-
-	- mappings -> LoggedDict
-	- lists    -> LoggedList
-	- sets     -> LoggedSet
-	- objects with __dict__ -> LoggedObject
-	- already wrapped -> returned as-is
-	"""
-
 	if callable(value):
 		return value
 
 	if isinstance(value, _BaseLogged):
 		return value
 
-	# No tracking for plain scalars
-	if isinstance(value, (str, bytes, int, float, bool, complex, type(None))):
+	if isinstance(value, _SCALAR_TYPES):
+		return value
+
+	if isinstance(value, _OPAQUE_TYPES):
 		return value
 
 	if seen is None:
-		seen = set()
+		seen = {}
 
 	obj_id = id(value)
+	recorded = seen.get(obj_id)
 
-	# Break the cycle immediately!!!
-	# We have entered a recursive object call!
-	if obj_id in seen:
-		return "<recursive self>"  # Can also be value?
+	# Cycle, so hand back the real object and keep the caller's structure working
+	if recorded is _IN_PROGRESS:
+		return value
 
-	seen.add(obj_id)
+	if recorded is not None:
+		# Finished entry: (original, wrapper)
+		return cast("tuple[object, object]", recorded)[1]
+
+	if len(seen) >= _MAX_WRAPPED_NODES:
+		return value
 
 	safe_name = name or "NO_NAME_ERR"
 
-	if isinstance(value, dict):
-		return LoggedDict(value, name=safe_name, _seen=seen)
+	wrapped: object
 
-	if isinstance(value, Mapping):
-		return LoggedDict(dict(value), name=safe_name, _seen=seen)
+	seen[obj_id] = _IN_PROGRESS
+	try:
+		if isinstance(value, dict):
+			# noinspection PyUnnecessaryCast
+			wrapped = LoggedDict(cast("dict[object, object]", value), safe_name, seen)
+		elif isinstance(value, Mapping):
+			# noinspection PyUnnecessaryCast
+			wrapped = LoggedDict(
+				dict(cast("Mapping[object, object]", value)), safe_name, seen
+			)
+		elif isinstance(value, list):
+			# noinspection PyUnnecessaryCast
+			wrapped = LoggedList(cast("list[object]", value), name=safe_name, _seen=seen)
+		elif isinstance(value, set):
+			# noinspection PyUnnecessaryCast
+			wrapped = LoggedSet(cast("set[object]", value), name=safe_name, _seen=seen)
+		elif hasattr(value, "__dict__") and not isinstance(value, type):
+			wrapped = LoggedObject(value, name=safe_name, _seen=seen)
+		else:
+			wrapped = value
+	except Exception:
+		_ = seen.pop(obj_id, None)
+		raise
 
-	if isinstance(value, list):
-		return LoggedList(value, name=safe_name, _seen=seen)
+	seen[obj_id] = (value, wrapped)
+	return wrapped
 
-	if isinstance(value, dict):
-		return LoggedDict(value, name=safe_name, _seen=seen)
 
-	if isinstance(value, Mapping):
-		return LoggedDict(dict(value), name=safe_name, _seen=seen)
-
-	if isinstance(value, set):
-		return LoggedSet(value, name=safe_name, _seen=seen)
-
-	if hasattr(value, "__dict__") and not isinstance(value, type):
-		return LoggedObject(value, name=safe_name, _seen=seen)
-
-	return value
+def _register_root(seen: dict[int, object], initial: object, wrapper: object) -> None:
+	"""Claim `initial` before wrapping children, so a self-reference reads as a cycle"""
+	if initial is not None and id(initial) not in seen:
+		seen[id(initial)] = (initial, wrapper)
 
 
 class LoggedObject(_BaseLogged, Generic[T]):
 	"""
-	A wrapper around mappings / objects that logs all mutations
-
-	- Stores data internally in `_data`
-	- Tracks attribute and item changes
-	- Recursively wraps nested values
+	Wrapper around mappings / objects that logs every mutation
+	Holds data in `_data`, tracks attribute and item changes, wraps nested values
 	"""
 
-	_data: dict[str, object]
+	# Set in __init__; __setattr__ routes underscore names to object.__setattr__
+	_data: dict[str, object]  # pyright: ignore[reportUninitializedInstanceVariable]
 
 	def __init__(
-		self, initial: T = None, name: str = "set", _seen: set[int] | None = None
+		self,
+		initial: T | None = None,
+		name: str = "set",
+		_seen: dict[int, object] | None = None,
 	) -> None:
-		# Prevent recursive self-calls expanding into an infinite recursion chain
 		if _seen is None:
-			_seen = set()
+			_seen = {}
 
 		object.__setattr__(self, "_seen", _seen)
 
-		# NOTE: why setattr? is there a specific reason? regular assignment
-		# is both faster and type safe.
-		# NOTE:  I defined __setattr__, so every normal assignment would
-		# trigger wrapping / logging during init and that could potentially recurse away or corrupt some internal state
-		# at least that's how I understand it, so I just use __setattr__ to bypass the custom logic
+		# object.__setattr__, or the logging __setattr__ would emit during init
 		object.__setattr__(self, "_data", {})
 		object.__setattr__(self, "_log_name", name)
+
+		# __eq__ / __hash__ defer to this, so `x in some_list` keeps working
+		object.__setattr__(self, "_origin", initial)
 
 		if initial is None:
 			return
 
+		_register_root(_seen, initial, self)
+
+		items: ItemsView[str, object]
+
 		if isinstance(initial, Mapping):
-			items = initial.items()
+			# noinspection PyUnnecessaryCast
+			items = cast("Mapping[str, object]", initial).items()
 		elif hasattr(initial, "__dict__"):
-			items = vars(initial).items()
+			items = cast("dict[str, object]", cast(object, vars(initial))).items()
 		else:
 			raise TypeError(
 				"LoggedObject can only wrap mappings or objects with __dict__"
@@ -249,34 +327,30 @@ class LoggedObject(_BaseLogged, Generic[T]):
 		for key, value in items:
 			self._data[key] = _wrap_value(value, name=f"{name}.{key}", seen=_seen)
 
+	def _own_data(self) -> dict[str, object]:
+		"""Read _data without going through the logging __getattr__"""
+
+		return cast("dict[str, object]", object.__getattribute__(self, "_data"))
+
+	def _own_log_name(self) -> str:
+		return cast(str, object.__getattribute__(self, "_log_name"))
+
 	def __getattr__(self, name: str) -> object:
-		data = object.__getattribute__(self, "_data")
+		data = self._own_data()
 
 		if name in data:
 			return data[name]
 
 		raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
 
-	# WARN: Too dangerous, but we might get confident enough to work with this in the future
-	# obj.items[1].x = 42 exposes the failure
-	# def __getattribute__(self, name: str):
-	# 	if name.startswith("_"):
-	# 		return object.__getattribute__(self, name)
-	#
-	# 	data = object.__getattribute__(self, "_data")
-	#
-	# 	if name in data:
-	# 		return data[name]
-	#
-	# 	return object.__getattribute__(self, name)
-
+	@override
 	def __setattr__(self, name: str, value: object) -> None:
 		if name.startswith("_"):
 			object.__setattr__(self, name, value)
 			return
 
-		data = object.__getattribute__(self, "_data")
-		log_name = object.__getattribute__(self, "_log_name")
+		data = self._own_data()
+		log_name = self._own_log_name()
 
 		wrapped = _wrap_value(value, name=f"{log_name}.{name}")
 		data[name] = wrapped
@@ -309,8 +383,8 @@ class LoggedObject(_BaseLogged, Generic[T]):
 	def __getitem__(self, key: str) -> object:
 		return self._data[key]
 
-	def __setitem__(self, key, value: object) -> None:
-		log_name = object.__getattribute__(self, "_log_name")
+	def __setitem__(self, key: str, value: object) -> None:
+		log_name = self._own_log_name()
 		wrapped = _wrap_value(value, name=f"{log_name}.{key}")
 		self._data[key] = wrapped
 
@@ -329,12 +403,13 @@ class LoggedObject(_BaseLogged, Generic[T]):
 		finally:
 			del frame
 
+	@override
 	def __delattr__(self, name: str) -> None:
 		if name.startswith("_"):
 			raise AttributeError(name)
 
-		data = object.__getattribute__(self, "_data")
-		log_name = object.__getattribute__(self, "_log_name")
+		data = self._own_data()
+		log_name = self._own_log_name()
 
 		if name not in data:
 			raise AttributeError(name)
@@ -351,7 +426,7 @@ class LoggedObject(_BaseLogged, Generic[T]):
 			del frame
 
 	def __delitem__(self, key: str) -> None:
-		log_name = object.__getattribute__(self, "_log_name")
+		log_name = self._own_log_name()
 		del self._data[key]
 
 		frame = _caller_frame()
@@ -372,7 +447,7 @@ class LoggedObject(_BaseLogged, Generic[T]):
 	def __contains__(self, key: str) -> bool:
 		return key in self._data
 
-	def get(self, key: str, default: T = None) -> object | T:
+	def get(self, key: str, default: object = None) -> object:
 		return self._data.get(key, default)
 
 	def keys(self) -> KeysView[object]:
@@ -384,45 +459,79 @@ class LoggedObject(_BaseLogged, Generic[T]):
 	def items(self) -> ItemsView[str, object]:
 		return self._data.items()
 
+	def _unwrap(self, seen: set[int] | None = None) -> dict[str, object]:
+		return {k: _unwrap_value(v, seen) for k, v in self._data.items()}
+
 	def to_dict(self) -> dict[str, object]:
-		def unwrap(v):
-			return _unwrap_value(v)
+		return _unwrap_value(self)
 
-		return {k: unwrap(v) for k, v in self._data.items()}
+	@override
+	def __eq__(self, other: object) -> bool:
+		"""Compare as the wrapped object, or logging changes what the program computes"""
 
+		origin = cast(object, object.__getattribute__(self, "_origin"))
+
+		if isinstance(other, LoggedObject):
+			# noinspection PyUnnecessaryCast
+			wrapper = cast("LoggedObject[object]", other)
+			other = cast(object, object.__getattribute__(wrapper, "_origin"))
+
+		if origin is None:
+			return self is other
+
+		return not _differs(origin, other)
+
+	@override
+	def __ne__(self, other: object) -> bool:
+		result = self.__eq__(other)
+		return result if result is NotImplemented else not result
+
+	@override
+	def __hash__(self) -> int:
+		origin = cast(object, object.__getattribute__(self, "_origin"))
+
+		try:
+			return hash(origin)
+		except TypeError:
+			# Unhashable payload, fall back to identity
+			return object.__hash__(self)
+
+	@override
 	def __repr__(self) -> str:
-		return repr(self.to_dict())  # f"{type(self).__name__}({self._data!r})"
+		return repr(self.to_dict())
 
+	@override
 	def __dir__(self) -> list[str]:
 		return sorted(set(super().__dir__()) | set(self._data.keys()))
 
 
 class LoggedList(list[T], _BaseLogged, Generic[T]):
-	"""
-	List wrapper that logs mutations like append, sort, pop, extend, etc
-	"""
+	"""List wrapper that logs mutations like append, sort, pop, extend"""
 
 	def __init__(
 		self,
 		initial: Iterable[T] | None = None,
 		name: str = "set",
-		_seen: set[int] | None = None,
-	):
-		# Prevent recursive self-calls expanding into an infinite recursion chain
+		_seen: dict[int, object] | None = None,
+	) -> None:
 		if _seen is None:
-			_seen = set()
+			_seen = {}
 
 		object.__setattr__(self, "_seen", _seen)
 		object.__setattr__(self, "_log_name", name)
 
 		if initial is None:
-			initial: list[T] = []
+			initial = []
 
-		items = [
-			_wrap_value(v, name=f"{name}[{i}]", seen=_seen)
-			for i, v in enumerate(initial or [])
-		]
-		super().__init__(items)
+		super().__init__()
+		_register_root(_seen, initial, self)
+
+		super().__init__(
+			[
+				_wrap_value(v, name=f"{name}[{i}]", seen=_seen)
+				for i, v in enumerate(initial or [])
+			]
+		)
 
 	def _emit(self, op: str, **details: object) -> None:
 		frame = _caller_frame()
@@ -439,16 +548,27 @@ class LoggedList(list[T], _BaseLogged, Generic[T]):
 		finally:
 			del frame
 
-	def __setitem__(self, key: int | slice, value: T) -> None:
+	@overload
+	def __setitem__(self, key: SupportsIndex, value: T, /) -> None: ...
+
+	@overload
+	def __setitem__(self, key: slice, value: Iterable[T], /) -> None: ...
+
+	@override
+	def __setitem__(self, key: SupportsIndex | slice, value: T | Iterable[T], /) -> None:
 		if isinstance(key, slice):
-			wrapped = [
-				_wrap_value(v, name=f"{self._log_name}[{i}]") for i, v in enumerate(value)
+			# noinspection PyUnnecessaryCast
+			items = list(cast("Iterable[T]", value))
+			wrapped_slice = [
+				_wrap_value(v, name=f"{self._log_name}[{i}]") for i, v in enumerate(items)
 			]
-			super().__setitem__(key, wrapped)
-			self._emit("setitem", key=str(key), value=value)
+			super().__setitem__(key, wrapped_slice)
+			self._emit("setitem", key=str(key), value=items)
 			return
 
-		wrapped = _wrap_value(value, name=f"{self._log_name}[{key}]")
+		# noinspection PyUnnecessaryCast
+		single = cast("T", value)
+		wrapped = _wrap_value(single, name=f"{self._log_name}[{key}]")
 		super().__setitem__(key, wrapped)
 
 		frame = _caller_frame()
@@ -462,7 +582,7 @@ class LoggedList(list[T], _BaseLogged, Generic[T]):
 				full_name,
 				{
 					"op": "setitem",
-					"value": _unwrap_value(value),
+					"value": _unwrap_value(single),
 					"state": _unwrap_value(self),
 				},
 				filename=filename,
@@ -471,15 +591,18 @@ class LoggedList(list[T], _BaseLogged, Generic[T]):
 		finally:
 			del frame
 
-	def __delitem__(self, key: int | slice) -> None:
+	@override
+	def __delitem__(self, key: SupportsIndex | slice, /) -> None:
 		super().__delitem__(key)
 		self._emit("delitem", key=key)
 
+	@override
 	def append(self, value: T) -> None:
 		wrapped = _wrap_value(value, name=f"{self._log_name}[{len(self)}]")
 		super().append(wrapped)
 		self._emit("append", value=value)
 
+	@override
 	def extend(self, iterable: Iterable[T]) -> None:
 		items = list(iterable)
 		wrapped = [
@@ -489,87 +612,102 @@ class LoggedList(list[T], _BaseLogged, Generic[T]):
 		super().extend(wrapped)
 		self._emit("extend", value=items)
 
-	def insert(self, index: int, value: T) -> None:
+	@override
+	def insert(self, index: SupportsIndex, value: T) -> None:
 		wrapped = _wrap_value(value, name=f"{self._log_name}[{index}]")
 		super().insert(index, wrapped)
 		self._emit("insert", index=index, value=value)
 
+	@override
 	def pop(self, index: SupportsIndex = -1) -> T:
 		value = super().pop(index)
 		self._emit("pop", index=index, value=value)
 		return value
 
+	@override
 	def remove(self, value: T) -> None:
 		super().remove(value)
 		self._emit("remove", value=value)
 
+	@override
 	def clear(self) -> None:
 		super().clear()
 		self._emit("clear")
 
-	def sort(self, *args, **kwargs) -> None:
-		super().sort(*args, **kwargs)
+	@override
+	def sort(self, *args: object, **kwargs: object) -> None:
+		sort_impl = cast("Callable[..., None]", super().sort)
+		sort_impl(*args, **kwargs)
+
 		self._emit("sort", args=args, kwargs=kwargs)
 
+	@override
 	def reverse(self) -> None:
 		super().reverse()
 		self._emit("reverse")
 
-	def __iadd__(self, other: Iterable[T]) -> LoggedList[T]:
+	@override
+	def __iadd__(self, other: Iterable[T], /) -> LoggedList[T]:
 		self.extend(other)
 		return self
 
-	def __imul__(self, other):
-		super().__imul__(other)
+	@override
+	def __imul__(self, other: SupportsIndex, /) -> LoggedList[T]:
+		_ = super().__imul__(other)
 		self._emit("imul", factor=other)
 		return self
 
-	def to_list(self):
-		# NOTE: very inefficient, will copy the list 2x each time, which is not needed just to get an Iterable
-		# NOTE: Thanks, I realised just self without list(self) is good enough
-		return [_unwrap_value(v) for v in self]
+	def to_list(self) -> list[T]:
+		return _unwrap_value(self)
 
+	@override
 	def __repr__(self) -> str:
-		return repr(self.to_list())  # f"{type(self).__name__}({list(self)!r})"
+		return repr(self.to_list())
 
 
 class LoggedDict(dict[K, V], _BaseLogged, Generic[K, V]):
-	"""
-	Dict wrapper that logs mutations like setitem, update, pop, clear, etc
-	"""
+	"""Dict wrapper that logs mutations like setitem, update, pop, clear"""
 
 	def __init__(
 		self,
 		initial: Mapping[K, V] | Iterable[tuple[K, V]] | None = None,
 		name: str = "set",
-		_seen: set[int] | None = None,
+		_seen: dict[int, object] | None = None,
+		/,
 		**kwargs: object,
-	):
-		# Prevent recursive self-calls expanding into an infinite recursion chain
+	) -> None:
+		# Positional-only, so LoggedDict(a=1, name="Alice") keeps "name" as a key
 		if _seen is None:
-			_seen = set()
+			_seen = {}
 
 		object.__setattr__(self, "_seen", _seen)
 		object.__setattr__(self, "_log_name", name)
 
-		if initial is None:
-			initial = {}
+		source: Mapping[K, V] | Iterable[tuple[K, V]] = (
+			cast("Mapping[K, V]", {}) if initial is None else initial
+		)
 
-		# NOTE: Inefficient, will copy the mapping even tough mapping does support items
-		# and in case of an Iterable, will copy it to the dict, to at the end re-copy it again.
-		# NOTE: Hey I modified it, it should be now
-		if isinstance(initial, Mapping):
-			items = initial.items()
+		pairs: list[tuple[object, object]]
+
+		if isinstance(source, Mapping):
+			# noinspection PyUnnecessaryCast
+			pairs = list(cast("Mapping[object, object]", source).items())
 		else:
-			items = dict(initial).items()
+			# noinspection PyUnnecessaryCast
+			pairs = list(cast("Iterable[tuple[object, object]]", source))
 
-		items = list(items) + list(kwargs.items())
+		pairs += list(kwargs.items())
 
 		super().__init__()
-		for k, v in items:
-			dict.__setitem__(self, k, _wrap_value(v, name=f"{name}.{k}", seen=_seen))
+		_register_root(_seen, cast(object, source), self)
+		for k, v in pairs:
+			# super() skips the logging __setitem__
+			# noinspection PyUnnecessaryCast
+			super().__setitem__(
+				cast("K", k), _wrap_value(cast("V", v), name=f"{name}.{k}", seen=_seen)
+			)
 
-	def _emit(self, op: str, **details) -> None:
+	def _emit(self, op: str, **details: object) -> None:
 		frame = _caller_frame()
 		try:
 			filename, lineno = _get_location(frame)
@@ -584,6 +722,7 @@ class LoggedDict(dict[K, V], _BaseLogged, Generic[K, V]):
 		finally:
 			del frame
 
+	@override
 	def __setitem__(self, key: K, value: V) -> None:
 		wrapped = _wrap_value(value, name=f"{self._log_name}.{key}")
 		super().__setitem__(key, wrapped)
@@ -608,84 +747,126 @@ class LoggedDict(dict[K, V], _BaseLogged, Generic[K, V]):
 		finally:
 			del frame
 
+	@override
 	def __delitem__(self, key: K) -> None:
 		super().__delitem__(key)
 		self._emit("delitem", key=key)
 
-	def __getattr__(self, name: K) -> V:
+	def __getattr__(self, name: str) -> V:
+		# d.name reads d["name"]
 		try:
-			return self[name]
+			# noinspection PyUnnecessaryCast
+			return self[cast("K", name)]
 		except KeyError as e:
 			raise AttributeError(name) from e
 
+	@override
 	def __setattr__(self, name: str, value: V) -> None:
 		if name.startswith("_"):
 			object.__setattr__(self, name, value)
 			return
 
-		self[name] = value
+		# noinspection PyUnnecessaryCast
+		self[cast("K", name)] = value
 
+	@override
 	def __delattr__(self, name: str) -> None:
 		if name.startswith("_"):
 			raise AttributeError(name)
 
-		del self[name]
+		# noinspection PyUnnecessaryCast
+		del self[cast("K", name)]
 
-	def update(self, *args: V, **kwargs: V) -> None:
-		data = dict(*args, **kwargs)
+	@override
+	def update(
+		self,
+		*args: SupportsKeysAndGetItem[K, V] | Iterable[tuple[K, V]],
+		**kwargs: V,
+	) -> None:
+		data: dict[K, V] = {}
+
+		for source in args:
+			data.update(source)
+
+		# noinspection PyUnnecessaryCast
+		data.update(cast("dict[K, V]", kwargs))
+
 		for k, v in data.items():
-			dict.__setitem__(self, k, _wrap_value(v, name=f"{self._log_name}.{k}"))
+			# Bypass __setitem__ so update logs once, not per key
+			super().__setitem__(k, _wrap_value(v, name=f"{self._log_name}.{k}"))
+
 		self._emit("update", value=data)
 
-	def setdefault(self, key: K, default: V = None) -> V:
+	@overload
+	def setdefault(
+		self: LoggedDict[K, V | None], key: K, default: None = None, /
+	) -> V | None: ...
+
+	@overload
+	def setdefault(self, key: K, default: V, /) -> V: ...
+
+	@override
+	def setdefault(self, key: K, default: V | None = None, /) -> V | None:
 		if key in self:
 			return self[key]
 
 		wrapped = _wrap_value(default, name=f"{self._log_name}.{key}")
-		super().__setitem__(key, wrapped)
+		# noinspection PyUnnecessaryCast
+		super().__setitem__(key, cast("V", wrapped))
 		self._emit("setdefault", key=key, value=default)
 		return wrapped
 
-	def pop(self, key: K, default: V = ...) -> V:
-		if default is ...:
+	@overload
+	def pop(self, key: K, /) -> V: ...
+
+	@overload
+	def pop(self, key: K, default: V, /) -> V: ...
+
+	@overload
+	def pop(self, key: K, default: D, /) -> V | D: ...
+
+	@override
+	def pop(self, key: K, default: object = _MISSING, /) -> object:
+		if default is _MISSING:
 			value = super().pop(key)
 			self._emit("pop", key=key, value=value)
 			return value
 
-		value = super().pop(key, default)
+		# noinspection PyUnnecessaryCast
+		value = super().pop(key, cast("V", default))
 		self._emit("pop", key=key, value=value)
 		return value
 
+	@override
 	def popitem(self) -> tuple[K, V]:
 		item = super().popitem()
 		self._emit("popitem", value=item)
 		return item
 
+	@override
 	def clear(self) -> None:
 		super().clear()
 		self._emit("clear")
 
-	def to_dict(self):
-		return {k: _unwrap_value(v) for k, v in dict.items(self)}
+	def to_dict(self) -> dict[K, V]:
+		return _unwrap_value(self)
 
-	def __repr__(self):
-		return repr(self.to_dict())  # f"{type(self).__name__}({dict(self)!r})"
+	@override
+	def __repr__(self) -> str:
+		return repr(self.to_dict())
 
 
 class LoggedSet(set[T], _BaseLogged, Generic[T]):
-	"""
-	Set wrapper that logs mutations like add, remove, update, clear, etc
-	"""
+	"""Set wrapper that logs mutations like add, remove, update, clear"""
 
 	def __init__(
 		self,
 		initial: Iterable[T] | None = None,
 		name: str = "set",
-		_seen: set[int] | None = None,
+		_seen: dict[int, object] | None = None,
 	) -> None:
-		# Prevent recursive self-calls expanding into an infinite recursion chain
 		if _seen is None:
-			_seen = set()
+			_seen = {}
 
 		object.__setattr__(self, "_seen", _seen)
 		object.__setattr__(self, "_log_name", name)
@@ -693,10 +874,10 @@ class LoggedSet(set[T], _BaseLogged, Generic[T]):
 		if initial is None:
 			initial = set()
 
-		wrapped = {_wrap_value(v, name=f"{name}.item") for v in initial}
-		super().__init__(wrapped)
+		# Left unwrapped: wrapping breaks hashing and membership
+		super().__init__(initial)
 
-	def _emit(self, op: str, **details):
+	def _emit(self, op: str, **details: object) -> None:
 		frame = _caller_frame()
 		try:
 			filename, lineno = _get_location(frame)
@@ -711,75 +892,85 @@ class LoggedSet(set[T], _BaseLogged, Generic[T]):
 		finally:
 			del frame
 
+	@override
 	def add(self, element: T) -> None:
-		wrapped = _wrap_value(element, name=f"{self._log_name}.item")
-		super().add(wrapped)
+		super().add(element)
 		self._emit("add", value=element)
 
+	@override
 	def update(self, *others: Iterable[T]) -> None:
-		values = []
-		# NOTE: inefficient, extend can work with any Iterable.
-		# NOTE: Thanks again, your're right
+		values: list[T] = []
 		for other in others:
 			values.extend(other)
 
-		wrapped = {_wrap_value(v, name=f"{self._log_name}.item") for v in values}
-		super().update(wrapped)
+		super().update(values)
 		self._emit("update", value=values)
 
-	def discard(self, element: T) -> None:
+	@override
+	def discard(self, element: object) -> None:
 		super().discard(element)
 		self._emit("discard", value=element)
 
+	@override
 	def remove(self, element: T) -> None:
 		super().remove(element)
 		self._emit("remove", value=element)
 
+	@override
 	def pop(self) -> T:
 		value = super().pop()
 		self._emit("pop", value=value)
 		return value
 
+	@override
 	def clear(self) -> None:
 		super().clear()
 		self._emit("clear")
 
-	def difference_update(self, *others: Iterable[T]) -> None:
+	@override
+	def difference_update(self, *others: Iterable[object]) -> None:
 		super().difference_update(*others)
 		self._emit("difference_update", value=[list(o) for o in others])
 
-	def intersection_update(self, *others: Iterable[T]) -> None:
+	@override
+	def intersection_update(self, *others: Iterable[object]) -> None:
 		super().intersection_update(*others)
 		self._emit("intersection_update", value=[list(o) for o in others])
 
-	def symmetric_difference_update(self, other: Iterable[T]) -> None:
+	@override
+	def symmetric_difference_update(self, other: Iterable[T], /) -> None:
 		super().symmetric_difference_update(other)
 		self._emit("symmetric_difference_update", value=list(other))
 
-	def __ior__(self, other: Iterable[T]) -> LoggedSet[T]:
+	@override
+	def __ior__(self, other: AbstractSet[T], /) -> LoggedSet[T]:
 		self.update(other)
 		return self
 
-	def __iand__(self, other: Iterable[T]) -> LoggedSet[T]:
-		super().__iand__(other)
+	@override
+	def __iand__(self, other: AbstractSet[object], /) -> LoggedSet[T]:
+		_ = super().__iand__(other)
 		self._emit("iand", value=list(other))
 		return self
 
-	def __isub__(self, other: Iterable[T]) -> LoggedSet[T]:
-		super().__isub__(other)
+	@override
+	def __isub__(self, other: AbstractSet[object], /) -> LoggedSet[T]:
+		_ = super().__isub__(other)
 		self._emit("isub", value=list(other))
 		return self
 
-	def __ixor__(self, other: Iterable[T]) -> LoggedSet[T]:
-		super().__ixor__(other)
+	@override
+	def __ixor__(self, other: AbstractSet[T], /) -> LoggedSet[T]:
+		_ = super().__ixor__(other)
 		self._emit("ixor", value=list(other))
 		return self
 
-	def to_set(self):
-		return {_unwrap_value(v) for v in set(self)}
+	def to_set(self) -> set[T]:
+		return _unwrap_value(self)
 
+	@override
 	def __repr__(self) -> str:
-		return repr(self.to_set())  # f"{type(self).__name__}({set(self)!r})"
+		return repr(self.to_set())
 
 
 __all__ = ["LoggedObject", "LoggedList", "LoggedDict", "LoggedSet", "_wrap_value"]
