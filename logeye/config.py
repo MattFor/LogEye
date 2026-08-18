@@ -2,7 +2,7 @@ import os
 import time
 import threading
 
-from typing import Literal, TypeAlias
+from typing import Callable, Literal, TypeAlias
 
 PathMode: TypeAlias = Literal["absolute", "project", "file"]
 
@@ -47,11 +47,24 @@ class _ThreadState(threading.local):
 	show_file: bool | None = None
 	show_lineno: bool | None = None
 
+	# Destination for everything logged while this call is on the stack
+	filepath: str | None = None
+
+	# level= / filter= of the enclosing @log, asked before change tracking emits
+	emit_gate: "Callable[[str, str], bool] | None" = None
+
 
 _tls: _ThreadState = _ThreadState()
 
 # What _push_display saves and _pop_display restores
-DisplayState: TypeAlias = tuple[Mode | None, bool | None, bool | None, bool | None]
+DisplayState: TypeAlias = tuple[
+	Mode | None,
+	bool | None,
+	bool | None,
+	bool | None,
+	str | None,
+	"Callable[[str, str], bool] | None",
+]
 
 
 def _mode() -> Mode:
@@ -74,31 +87,85 @@ def _show_lineno() -> bool:
 	return _g_show_lineno if override is None else override
 
 
+EmitContext: TypeAlias = tuple[
+	bool, bool, bool, str | None, "Callable[[str, str], bool] | None"
+]
+
+
+def _emit_context(
+	show_time: bool | None,
+	show_file: bool | None,
+	show_lineno: bool | None,
+	filepath: str | None,
+) -> EmitContext:
+	"""Fill in whatever the caller left open from the call on the stack"""
+
+	state = _tls
+
+	if show_time is None:
+		show_time = _g_show_time if state.show_time is None else state.show_time
+
+	if show_file is None:
+		show_file = _g_show_file if state.show_file is None else state.show_file
+
+	if show_lineno is None:
+		show_lineno = _g_show_lineno if state.show_lineno is None else state.show_lineno
+
+	if filepath is None:
+		filepath = state.filepath
+
+	return show_time, show_file, show_lineno, filepath, state.emit_gate
+
+
 def _push_display(
 	mode: Mode | None = None,
 	show_time: bool | None = None,
 	show_file: bool | None = None,
 	show_lineno: bool | None = None,
+	filepath: str | None = None,
+	emit_gate: "Callable[[str, str], bool] | None" = None,
 ) -> DisplayState:
-	"""Install per-call display overrides; pair with _pop_display in a finally"""
+	"""Install per-call overrides; pair with _pop_display in a finally"""
 
 	previous: DisplayState = (
 		_tls.mode,
 		_tls.show_time,
 		_tls.show_file,
 		_tls.show_lineno,
+		_tls.filepath,
+		_tls.emit_gate,
 	)
 
 	_tls.mode = mode
 	_tls.show_time = show_time
 	_tls.show_file = show_file
 	_tls.show_lineno = show_lineno
+	_tls.filepath = filepath
+	_tls.emit_gate = emit_gate
 
 	return previous
 
 
+def _reset_display() -> None:
+	"""Forget every per-call override, whatever the state is made of"""
+
+	_tls.mode = None
+	_tls.show_time = None
+	_tls.show_file = None
+	_tls.show_lineno = None
+	_tls.filepath = None
+	_tls.emit_gate = None
+
+
 def _pop_display(previous: DisplayState) -> None:
-	_tls.mode, _tls.show_time, _tls.show_file, _tls.show_lineno = previous
+	(
+		_tls.mode,
+		_tls.show_time,
+		_tls.show_file,
+		_tls.show_lineno,
+		_tls.filepath,
+		_tls.emit_gate,
+	) = previous
 
 
 # =========
@@ -189,7 +256,9 @@ __all__ = [
 	"_show_time",
 	"_show_file",
 	"_show_lineno",
+	"_emit_context",
 	"_push_display",
 	"_pop_display",
+	"_reset_display",
 	"_normalize_mode",
 ]

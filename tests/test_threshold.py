@@ -336,7 +336,10 @@ def test_no_duplicate_emits(capsys):
 
 	raw, ls = capture(capsys)
 
-	assert count(ls, "12") == 1
+	# Match the payload, never a bare number; the "[0.612s]" stamp holds digits too
+	assert count(ls, "x = 10") == 1
+	assert count(ls, "x = 12") == 1
+	assert_line_count(ls, 2)
 
 
 def test_change_not_lost_after_skip(capsys):

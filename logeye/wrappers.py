@@ -171,7 +171,7 @@ def _emit_change(
 	if state is not None:
 		payload["state"] = _unwrap_value(state)
 
-	_emit("change", name, payload, filename=filename, lineno=lineno)
+	_emit("change", name, payload, filename=filename, lineno=lineno, tracked=True)
 
 
 @overload
@@ -420,7 +420,12 @@ class LoggedObject(_BaseLogged, Generic[T]):
 		try:
 			filename, lineno = _get_location(frame)
 			_emit(
-				"set", f"{log_name}.{name}", "<deleted>", filename=filename, lineno=lineno
+				"set",
+				f"{log_name}.{name}",
+				"<deleted>",
+				filename=filename,
+				lineno=lineno,
+				tracked=True,
 			)
 		finally:
 			del frame
@@ -433,7 +438,12 @@ class LoggedObject(_BaseLogged, Generic[T]):
 		try:
 			filename, lineno = _get_location(frame)
 			_emit(
-				"set", f"{log_name}.{key}", "<deleted>", filename=filename, lineno=lineno
+				"set",
+				f"{log_name}.{key}",
+				"<deleted>",
+				filename=filename,
+				lineno=lineno,
+				tracked=True,
 			)
 		finally:
 			del frame
@@ -587,6 +597,7 @@ class LoggedList(list[T], _BaseLogged, Generic[T]):
 				},
 				filename=filename,
 				lineno=lineno,
+				tracked=True,
 			)
 		finally:
 			del frame
@@ -743,6 +754,7 @@ class LoggedDict(dict[K, V], _BaseLogged, Generic[K, V]):
 				},
 				filename=filename,
 				lineno=lineno,
+				tracked=True,
 			)
 		finally:
 			del frame

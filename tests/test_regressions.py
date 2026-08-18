@@ -1,10 +1,3 @@
-"""
-Regression tests for the issues found in the full-repository audit
-
-Each test names the finding it pins down, so a future change that reintroduces
-one of them fails here rather than silently degrading the output.
-"""
-
 import sys
 import json
 import inspect
@@ -70,7 +63,7 @@ def test_line_numbers_point_at_the_real_statement(capsys):
 
 
 def test_traces_function_defined_in_another_module(capsys):
-	from audit_helper_module import compute
+	from external_module import compute
 
 	compute(3)
 
@@ -78,7 +71,7 @@ def test_traces_function_defined_in_another_module(capsys):
 
 	assert_has_set(raw, "compute.doubled", 6)
 	assert_has_set(raw, "compute.shifted", 7)
-	assert_has(raw, "audit_helper_module.py")
+	assert_has(raw, "external_module.py")
 
 
 def test_traces_function_body_inside_a_thread(capsys):
@@ -278,7 +271,6 @@ def test_modules_are_never_wrapped(capsys):
 
 	raw, ls = capture(capsys)
 
-	# Wrapping a module pulls in __builtins__ and every exception class with it
 	assert_not_has(raw, "JSON (JavaScript")
 	assert_not_has(raw, "BaseException")
 	assert len(ls) < 10, f"expected a handful of lines, got {len(ls)}"

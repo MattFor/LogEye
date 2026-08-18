@@ -36,7 +36,8 @@ from .watcher import (
 	_mark_emitted,
 	_mark_watched,
 	_passes_threshold,
-	_recently_emitted,
+	_watched_names,
+	_was_just_emitted,
 	_install_global_trace,
 	_resolve_threshold_for_name,
 )
@@ -257,7 +258,8 @@ def _log_class(
 			except AttributeError:
 				pass
 
-		previous = config._push_display(mode, show_time, show_file, show_lineno)
+		previous = config._push_display(mode, show_time, show_file, show_lineno, filepath)
+
 		try:
 			_emit(
 				"call",
@@ -308,7 +310,10 @@ def _log_class(
 
 			kind = "change" if already_exists else "set"
 
-			previous = config._push_display(mode, show_time, show_file, show_lineno)
+			previous = config._push_display(
+				mode, show_time, show_file, show_lineno, filepath
+			)
+
 			try:
 				_emit(
 					kind,
@@ -341,7 +346,10 @@ def _log_class(
 		try:
 			filename, lineno = _get_location(frame)
 
-			previous = config._push_display(mode, show_time, show_file, show_lineno)
+			previous = config._push_display(
+				mode, show_time, show_file, show_lineno, filepath
+			)
+
 			try:
 				_emit(
 					"set",
@@ -637,6 +645,39 @@ def _log_function(
 
 	call_counter = 0
 
+	def should_emit(kind: str, name: str) -> bool:
+		if level == "call" and kind not in ("call", "return", "raise", "yield"):
+			return False
+
+		if level == "state" and kind == "call":
+			return False
+
+		if filter_set:
+			parts = name.split(".")
+			candidates = parts[1:] if len(parts) > 1 else parts
+
+			if not any(part in filter_set for part in candidates):
+				return False
+
+		# Educational narrows further after level and filter
+		if mode == "educational" and kind == "set":
+			var = name.split(".")[-1]
+
+			if var in ("_", "i", "j", "k", "idx", "tmp", "val"):
+				return False
+
+		return True
+
+	# With nothing to narrow change tracking need not ask on every line
+	emit_gate = should_emit if level != "full" or filter_set or mode != "full" else None
+
+	def _enter_call() -> config.DisplayState:
+		"""Make this call's settings the ones every nested emit reads"""
+
+		return config._push_display(
+			mode, show_time, show_file, show_lineno, filepath, emit_gate
+		)
+
 	def _build_tracer(
 		display_call_name: str,
 		call_signature: str,
@@ -659,6 +700,9 @@ def _log_function(
 			# noinspection PyUnnecessaryCast
 			locals_view = cast("dict[str, object]", frame.f_locals)
 
+			# Fetched once; the loop below runs per local per line event
+			watched = _watched_names(code)
+
 			value: object
 
 			for key, value in list(locals_view.items()):
@@ -676,9 +720,12 @@ def _log_function(
 				old = known.get(key, _NO_VALUE)
 
 				# Already reported by an explicit log() / watch()
-				marker = (code, key)
-				if marker in _recently_emitted:
-					_recently_emitted.discard(marker)
+				if _was_just_emitted(code, key, lineno):
+					known[key] = value
+					continue
+
+				# An explicit watch() / `| l` owns this name for the whole frame
+				if watched is not None and key in watched:
 					known[key] = value
 					continue
 
@@ -951,27 +998,6 @@ def _log_function(
 		call_id = call_counter
 		call_name = f"{func_path}{'' if call_id == 1 else f'#{call_id}'}"
 
-		def should_emit(kind: str, name: str) -> bool:
-			if level == "call" and kind not in ("call", "return", "raise", "yield"):
-				return False
-
-			if level == "state" and kind == "call":
-				return False
-
-			if filter_set:
-				var_name = name.split(".")[-1]
-				if var_name not in filter_set:
-					return False
-
-			# Educational narrows further, after level and filter
-			if mode == "educational" and kind == "set":
-				var = name.split(".")[-1]
-
-				if var in ("_", "i", "j", "k", "idx", "tmp", "val"):
-					return False
-
-			return True
-
 		call_frame = _caller_frame()
 		call_filename, call_lineno = _get_location(call_frame)
 
@@ -1046,7 +1072,7 @@ def _log_function(
 			if not config._g_enabled:
 				return func(*args, **kwargs)
 
-			previous = config._push_display(mode, show_time, show_file, show_lineno)
+			previous = _enter_call()
 			try:
 				state = _prepare(args, kwargs)
 
@@ -1091,7 +1117,7 @@ def _log_function(
 					stacklevel=2,
 				)
 
-				previous = config._push_display(mode, show_time, show_file, show_lineno)
+				previous = _enter_call()
 				try:
 					_ = _prepare(args, kwargs)
 				finally:
@@ -1113,7 +1139,7 @@ def _log_function(
 				yield from gen_func(*args, **kwargs)
 				return
 
-			previous = config._push_display(mode, show_time, show_file, show_lineno)
+			previous = _enter_call()
 			try:
 				state = _prepare(args, kwargs)
 			finally:
@@ -1153,7 +1179,7 @@ def _log_function(
 				The body only runs between next()/send(), long after the wrapper returned
 				"""
 
-				previous = config._push_display(mode, show_time, show_file, show_lineno)
+				previous = _enter_call()
 				old_trace = sys.gettrace()
 				sys.settrace(tracer)
 
@@ -1200,7 +1226,7 @@ def _log_function(
 		if not config._g_enabled:
 			return func(*args, **kwargs)
 
-		previous = config._push_display(mode, show_time, show_file, show_lineno)
+		previous = _enter_call()
 
 		try:
 			state = _prepare(args, kwargs)

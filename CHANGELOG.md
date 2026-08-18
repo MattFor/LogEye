@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.2] - 2026-08-18 HOTFIX
+
+### Fixed
+
+* logs not displaying calls properly
+* =filter matched the wrong argument after 1.6.1
+* _recently_emitted emitted twice
+
 ## [1.6.1] - 2026-08-18
 
 ### Fixed

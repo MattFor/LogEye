@@ -83,14 +83,24 @@ def _emit(
 	filename: str | None = None,
 	lineno: int | None = None,
 	filepath: str | None = None,
-	show_time: bool = True,
-	show_file: bool = True,
-	show_lineno: bool = True,
+	show_time: bool | None = None,
+	show_file: bool | None = None,
+	show_lineno: bool | None = None,
+	tracked: bool = False,
 ) -> None:
+	"""Render one event and put it wherever the call on the stack wants it"""
+
 	if not config._g_enabled:
 		return
 
 	if filename and not _is_user_code(filename):
+		return
+
+	show_time, show_file, show_lineno, filepath, gate = config._emit_context(
+		show_time, show_file, show_lineno, filepath
+	)
+
+	if tracked and gate is not None and not gate(kind, name):
 		return
 
 	is_edu = config._mode() == "educational"

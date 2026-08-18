@@ -57,7 +57,8 @@ def _slot(store: dict[CodeType, K], code: CodeType, factory: Callable[[], K]) ->
 	return fresh
 
 
-_recently_emitted: set[tuple[CodeType, str]] = set()
+# (code, name) -> the line an explicit log() / watch() already reported it on
+_recently_emitted: dict[tuple[CodeType, str], int] = {}
 
 _g_trace_installed: bool = False
 
@@ -79,7 +80,19 @@ def _mark_emitted(frame: FrameType, name: str) -> None:
 	if len(_recently_emitted) >= _MAX_TRACKED_CODES * 4:
 		_recently_emitted.clear()
 
-	_recently_emitted.add((frame.f_code, name))
+	_recently_emitted[(frame.f_code, name)] = frame.f_lineno
+
+
+def _watched_names(code: CodeType) -> set[str] | None:
+	"""Names an explicit watch() / `| l` reports in this code"""
+
+	return _g_watched_names.get(code)
+
+
+def _was_just_emitted(code: CodeType, name: str, lineno: int | None) -> bool:
+	"""Did an explicit log() / watch() already report this name on this line?"""
+
+	return lineno is not None and _recently_emitted.get((code, name)) == lineno
 
 
 def _mark_watched(
@@ -295,9 +308,7 @@ def _global_tracer(frame: FrameType, event: str, arg: object) -> TraceFunction |
 		if name == "_" or name not in current:
 			continue
 
-		key = (frame.f_code, name)
-		if key in _recently_emitted:
-			_recently_emitted.discard(key)
+		if _was_just_emitted(frame.f_code, name, lineno):
 			last[name] = current[name]  # Sync state
 			continue
 
@@ -386,6 +397,8 @@ def _reset_watch_state() -> None:
 __all__ = [
 	"TraceEvent",
 	"_mark_emitted",
+	"_watched_names",
+	"_was_just_emitted",
 	"_mark_watched",
 	"_differs",
 	"_passes_threshold",

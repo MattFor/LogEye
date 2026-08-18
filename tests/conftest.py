@@ -25,7 +25,7 @@ def _clean_logeye_state():
 
 	reset_output_formatter()
 
-	config._pop_display((None, None, None, None))
+	config._reset_display()
 
 	config._g_enabled = True
 	config._g_deco_only = False
