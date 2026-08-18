@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import ast
+import time
 import linecache
 
 from typing import NamedTuple
@@ -60,6 +61,11 @@ _NO_INFO = _LineInfo(None, None, (), False)
 _line_info_cache: dict[tuple[str, int], _LineInfo] = {}
 _file_stamp_cache: dict[str, float] = {}
 
+# Seconds between stat() calls on the same file; the watcher asks per line event,
+# and stat'ing that often costs more than everything else the tracer does
+_STALE_CHECK_INTERVAL = 0.25
+_file_checked_at: dict[str, float] = {}
+
 
 def _file_stamp(filename: str) -> float:
 	try:
@@ -71,19 +77,53 @@ def _file_stamp(filename: str) -> float:
 def _invalidate_if_stale(filename: str) -> None:
 	"""Drop cached line info when the file changed on disk"""
 
+	now = time.monotonic()
+	if now - _file_checked_at.get(filename, 0.0) < _STALE_CHECK_INTERVAL:
+		return
+
+	_file_checked_at[filename] = now
+
 	stamp = _file_stamp(filename)
 	if _file_stamp_cache.get(filename) == stamp:
 		return
 
 	_file_stamp_cache[filename] = stamp
 	_ = _module_cache.pop(filename, None)
+	_ = _assignments_cache.pop(filename, None)
 
 	for key in [k for k in _line_info_cache if k[0] == filename]:
 		del _line_info_cache[key]
 
 
+def _flatten_target_names(target: ast.expr) -> tuple[str, ...]:
+	"""
+	Every binding an assignment target introduces, left to right
+	Nested targets flatten into one sequence, so `(a, (b, c))` reads as
+	("a", "b", "c") and lines up with the log() calls on the right-hand side
+	Anything that is not a plain name (obj.attr, items[0]) keeps a blank slot,
+	so the positions of the names around it stay correct
+	"""
+
+	if isinstance(target, ast.Name):
+		return (target.id,)
+
+	if isinstance(target, ast.Starred):
+		return _flatten_target_names(target.value)
+
+	if isinstance(target, (ast.Tuple, ast.List)):
+		names: list[str] = []
+
+		for element in target.elts:
+			names.extend(_flatten_target_names(element))
+
+		return tuple(names)
+
+	# Assignable, but not to a name we can report
+	return ("",)
+
+
 def _targets_of(node: ast.Assign | ast.AnnAssign) -> tuple[str | None, tuple[str, ...]]:
-	"""Split an assignment's targets into (single name, tuple names)"""
+	"""Split an assignment's targets into (single name, unpacked names)"""
 
 	if isinstance(node, ast.AnnAssign):
 		target = node.target
@@ -97,9 +137,8 @@ def _targets_of(node: ast.Assign | ast.AnnAssign) -> tuple[str | None, tuple[str
 	if isinstance(target, ast.Name):
 		return target.id, ()
 
-	if isinstance(target, ast.Tuple):
-		names = tuple(el.id for el in target.elts if isinstance(el, ast.Name))
-		return None, names
+	if isinstance(target, (ast.Tuple, ast.List)):
+		return None, _flatten_target_names(target)
 
 	return None, ()
 
@@ -130,7 +169,7 @@ def _info_from_statement(stmt: ast.AST) -> _LineInfo | None:
 		log_single = single
 
 	# a, b = log(...), log(...) tuple_names carries the mapping
-	if isinstance(value, ast.Tuple) and tuple_names:
+	if isinstance(value, (ast.Tuple, ast.List)) and tuple_names:
 		return _LineInfo(log_single, single, tuple_names, True)
 
 	return _LineInfo(log_single, single, (), True)
@@ -208,6 +247,88 @@ def _module_ast(filename: str) -> ast.Module | None:
 	return tree
 
 
+# filename -> {lineno: names bound there}, invalidated with the line cache
+_assignments_cache: dict[str, dict[int, frozenset[str]]] = {}
+
+
+def _assignment_targets(node: ast.AST) -> list[ast.expr]:
+	"""The targets a statement binds, or none when it binds nothing"""
+
+	if isinstance(node, ast.Assign):
+		return list(node.targets)
+
+	if isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+		return [node.target] if node.value is not None else []
+
+	if isinstance(node, (ast.For, ast.AsyncFor)):
+		return [node.target]
+
+	if isinstance(node, (ast.With, ast.AsyncWith)):
+		return [item.optional_vars for item in node.items if item.optional_vars]
+
+	return []
+
+
+def _assignments_of_file(filename: str) -> dict[int, frozenset[str]]:
+	"""Every line that binds a name, mapped to the names it binds"""
+
+	cached = _assignments_cache.get(filename)
+	if cached is not None:
+		return cached
+
+	table: dict[int, set[str]] = {}
+	module = _module_ast(filename)
+
+	if module is not None:
+		for node in ast.walk(module):
+			for target in _assignment_targets(node):
+				names = {name for name in _flatten_target_names(target) if name}
+				if not names:
+					continue
+
+				# The target's own span, not the statement's; a `for` header
+				# binds on its own line, not down the whole loop body
+				start = target.lineno
+				end = getattr(target, "end_lineno", start) or start
+
+				for line in range(start, end + 1):
+					table.setdefault(line, set()).update(names)
+
+	frozen = {line: frozenset(names) for line, names in table.items()}
+	_assignments_cache[filename] = frozen
+
+	return frozen
+
+
+_NO_NAMES: frozenset[str] = frozenset()
+
+
+def _line_assigns(filename: str, lineno: int | None, name: str) -> bool:
+	"""Does the assignment at filename:lineno bind `name`?
+
+	Tells a genuine re-assignment apart from a line that merely read the name,
+	so watching can report `x = 1` twice in a row instead of swallowing the second
+
+	The watcher asks this on every line event, so the warm path is dict lookups
+	and nothing else; the table is only rebuilt when the file changed on disk
+	"""
+
+	if not filename or lineno is None:
+		return False
+
+	table = _assignments_cache.get(filename)
+
+	if (
+		table is None
+		or time.monotonic() - _file_checked_at.get(filename, 0.0) >= _STALE_CHECK_INTERVAL
+	):
+		_invalidate_if_stale(filename)
+		table = _assignments_of_file(filename)
+
+	# Watched names are bare locals; a dotted one never matches a target
+	return name in table.get(lineno, _NO_NAMES)
+
+
 def _get_call_index_in_line(frame: FrameType, target_count: int) -> int:
 	"""
 	Which log() call this is on the current line
@@ -225,6 +346,12 @@ def _get_call_index_in_line(frame: FrameType, target_count: int) -> int:
 	return idx % target_count
 
 
+def _unpacked_name(frame: FrameType, names: tuple[str, ...]) -> str | None:
+	"""The name this log() call fills in an unpacking target, blank slots aside"""
+
+	return names[_get_call_index_in_line(frame, len(names))] or None
+
+
 def _infer_name_from_frame(
 	frame: FrameType | None, default: str = "PLACEHOLDER"
 ) -> str | None:
@@ -239,7 +366,7 @@ def _infer_name_from_frame(
 		return default
 
 	if info.tuple_names:
-		return info.tuple_names[_get_call_index_in_line(frame, len(info.tuple_names))]
+		return _unpacked_name(frame, info.tuple_names) or default
 
 	if info.any_single:
 		return info.any_single
@@ -257,13 +384,14 @@ def _get_assignment_target_for_call(frame: FrameType | None) -> str | None:
 	info = _analyze_line(frame.f_code.co_filename, frame.f_lineno)
 
 	if info.tuple_names:
-		return info.tuple_names[_get_call_index_in_line(frame, len(info.tuple_names))]
+		return _unpacked_name(frame, info.tuple_names) or info.log_single
 
 	return info.log_single
 
 
 __all__ = [
 	"_is_user_code",
+	"_line_assigns",
 	"_is_direct_log_call",
 	"_infer_name_from_frame",
 	"_get_call_index_in_line",

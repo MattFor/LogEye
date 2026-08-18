@@ -116,10 +116,7 @@ def test_recursive_with_wrapper(capsys):
 	assert_has(out, "fib")
 
 
-@pytest.mark.xfail(
-	reason="C decorators like lru_cache are not traceable via sys.settrace - TODO"
-)
-def test_lru_cache_not_traced(capsys):
+def test_lru_cache_traced(capsys):
 	@log(show_wrapper_locals=True)
 	@lru_cache(maxsize=None)
 	def fib(n):
@@ -131,5 +128,61 @@ def test_lru_cache_not_traced(capsys):
 
 	out, ls = capture(capsys)
 
-	# What we WANT (but currently can't get :( )
-	assert "inner" in out or "fib(" in out
+	calls = [line for line in ls if "(call)" in line]
+	returns = [line for line in ls if "(return)" in line]
+
+	# lru_cache answers a hit from C without ever entering the body; call still has to report where it arrived
+	assert len(calls) == len(returns), f"unpaired call/return:\n{out}"
+
+	assert_has(out, "(return) fib args=(5) -> 5")
+
+	# Body itself is still traced through the C wrapper
+	assert_has(out, "fib.n = 5")
+
+
+def test_lru_cache_hit_reports_its_return(capsys):
+	@log
+	@lru_cache(maxsize=None)
+	def double(n):
+		return n * 2
+
+	double(2)
+	double(2)
+
+	out, ls = capture(capsys)
+
+	assert len([line for line in ls if "(call)" in line]) == 2
+	assert len([line for line in ls if "(return)" in line]) == 2
+
+	# Second call is a cache hit; only the first traces the body
+	assert len([line for line in ls if "(set)" in line]) == 1
+
+
+def test_lru_cache_raise_is_reported(capsys):
+	@log
+	@lru_cache(maxsize=None)
+	def boom(n):
+		raise ValueError(n)
+
+	with pytest.raises(ValueError):
+		boom(1)
+
+	out, _ = capture(capsys)
+
+	assert_has(out, "(raise)")
+
+
+def test_lru_cache_raise_before_the_body_is_reported(capsys):
+	@log
+	@lru_cache(maxsize=None)
+	def double(n):
+		return n * 2
+
+	# Unhashable, lru_cache raises without ever reaching the body
+	with pytest.raises(TypeError):
+		double([1, 2])
+
+	out, ls = capture(capsys)
+
+	assert_has(out, "(raise)")
+	assert len([line for line in ls if "(call)" in line]) == 1

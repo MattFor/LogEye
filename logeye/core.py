@@ -60,6 +60,13 @@ class _CallState:
 	# Line the frame last stopped on, filled in as a generator suspends
 	exit_line: int | None = None
 
+	# Where the call was written, for exits the tracer never gets to see
+	call_filename: str | None = None
+	call_lineno: int | None = None
+
+	# Did sys.settrace ever hand a frame for this call?
+	traced: bool = False
+
 
 T = TypeVar("T")
 K = TypeVar("K")
@@ -749,6 +756,7 @@ def _log_function(
 
 				if code in allowed_codes:
 					_register(frame, display_call_name)
+					state.traced = True
 					return tracer
 
 				parent = frame.f_back
@@ -995,7 +1003,41 @@ def _log_function(
 				show_lineno=show_lineno,
 			)
 
-		return _build_tracer(display_call_name, call_signature, args, kwargs, should_emit)
+		state = _build_tracer(
+			display_call_name, call_signature, args, kwargs, should_emit
+		)
+
+		state.call_filename = call_filename
+		state.call_lineno = call_lineno
+
+		return state
+
+	def _emit_untraced_exit(
+		state: _CallState,
+		kind: Kind,
+		payload: dict[str, object],
+		args: tuple[object, ...],
+		kwargs: dict[str, object],
+	) -> None:
+		"""Report an exit sys.settrace never saw"""
+
+		if state.traced or not state.should_emit(kind, state.name):
+			return
+
+		payload["args"] = args
+		payload["kwargs"] = kwargs
+
+		_emit(
+			kind,
+			state.name,
+			payload,
+			filename=state.call_filename,
+			lineno=state.call_lineno,
+			filepath=filepath,
+			show_time=show_time,
+			show_file=show_file,
+			show_lineno=show_lineno,
+		)
 
 	if target_code is None:
 		# C callables don't have a Python frame; tracer can't see the exit
@@ -1004,49 +1046,33 @@ def _log_function(
 			if not config._g_enabled:
 				return func(*args, **kwargs)
 
-			frame = _caller_frame()
-			try:
-				filename, lineno = _get_location(frame)
-			finally:
-				del frame
-
 			previous = config._push_display(mode, show_time, show_file, show_lineno)
 			try:
 				state = _prepare(args, kwargs)
 
-				def _emit_exit(kind: Kind, payload: dict[str, object]) -> None:
-					if not state.should_emit(kind, state.name):
-						return
-
-					payload["args"] = args
-					payload["kwargs"] = kwargs
-
-					_emit(
-						kind,
-						state.name,
-						payload,
-						filename=filename,
-						lineno=lineno,
-						filepath=filepath,
-						show_time=show_time,
-						show_file=show_file,
-						show_lineno=show_lineno,
-					)
-
 				try:
 					result = func(*args, **kwargs)
 				except BaseException as caught:
-					_emit_exit(
+					_emit_untraced_exit(
+						state,
 						"raise",
 						{
 							"exception": caught,
 							"exception_type": type(caught).__name__,
 							"call_signature": state.signature,
 						},
+						args,
+						kwargs,
 					)
 					raise
 
-				_emit_exit("return", {"value": result, "call_signature": state.signature})
+				_emit_untraced_exit(
+					state,
+					"return",
+					{"value": result, "call_signature": state.signature},
+					args,
+					kwargs,
+				)
 				return result
 			finally:
 				config._pop_display(previous)
@@ -1183,9 +1209,35 @@ def _log_function(
 			sys.settrace(state.tracer)
 
 			try:
-				return func(*args, **kwargs)
+				result = func(*args, **kwargs)
+			except BaseException as caught:
+				sys.settrace(old_trace)
+
+				# A C decorator in between may have raised before the body ran
+				_emit_untraced_exit(
+					state,
+					"raise",
+					{
+						"exception": caught,
+						"exception_type": type(caught).__name__,
+						"call_signature": state.signature,
+					},
+					args,
+					kwargs,
+				)
+				raise
 			finally:
 				sys.settrace(old_trace)
+
+			# Nothing was traced when a C decorator answered on its own
+			_emit_untraced_exit(
+				state,
+				"return",
+				{"value": result, "call_signature": state.signature},
+				args,
+				kwargs,
+			)
+			return result
 		finally:
 			config._pop_display(previous)
 

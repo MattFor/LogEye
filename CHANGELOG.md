@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.6.1] - 2026-08-18
+
+### Fixed
+
+* Nested assignment unpacking names every target. `(a, (b, c)) = log("x"),
+  (log("y"), log("z"))` reports `a`, `b` and `c` instead of calling all three
+  `a`; list targets (`[a, [b, c]] = ...`) work the same way, and a target that
+  is not a plain name (`obj.attr`, `items[0]`) no longer shifts the surrounding names onto the wrong values
+* C decorators such as `functools.lru_cache` report their exit properly. 
+* Re-assigning a watched variable to an equal value is reported as a
+  `(change)`. Lines that only read the name still emit nothing, and a
+  configured `threshold=` suppresses zero-delta writes as before
+
+### Performance
+
+* `stat()` on a traced file is rate-limited rather than run per lookup which keeps the watcher's per-line cost flat
+
 ## [1.6.0] - 2026-08-18
 
 ### Performance

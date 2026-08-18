@@ -19,6 +19,7 @@ from typing import (
 )
 
 from logeye.emmiter import _emit
+from logeye.introspection import _line_assigns
 
 # Events sys.settrace dispatches
 TraceEvent: TypeAlias = Literal["call", "line", "return", "exception", "opcode"]
@@ -303,10 +304,15 @@ def _global_tracer(frame: FrameType, event: str, arg: object) -> TraceFunction |
 		value = current[name]
 		old = last.get(name, _NO_VALUE)
 
+		differs = old is not _NO_VALUE and _differs(old, value)
+
 		kind: Kind
 		if old is _NO_VALUE:
 			kind = "set"
-		elif _differs(old, value):
+		elif differs:
+			kind = "change"
+		elif _line_assigns(filename, lineno, name):
+			# Written again with a value that compares equal; still an assignment
 			kind = "change"
 		else:
 			continue
@@ -315,7 +321,10 @@ def _global_tracer(frame: FrameType, event: str, arg: object) -> TraceFunction |
 			name, (meta or {}).get(name, {}).get("threshold")
 		)
 
-		if not _passes_threshold(old, value, threshold):
+		if differs:
+			if not _passes_threshold(old, value, threshold):
+				continue
+		elif old is not _NO_VALUE and threshold:
 			continue
 
 		_emit(kind, name, value, filename=filename, lineno=lineno)

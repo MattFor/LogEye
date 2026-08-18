@@ -62,18 +62,32 @@ def test_tuple_unpacking(capsys):
 	assert_line_order(ls, "a = 'x'", "b = 'y'")
 
 
-@pytest.mark.xfail(reason="Nested unpacking not fully supported yet", strict=False)
 def test_nested_unpacking(capsys):
 	(a, (b, c)) = log("x"), (log("y"), log("z"))
 
 	raw, ls = capture(capsys)
 
+	assert (a, b, c) == ("x", "y", "z")
+	assert_line_count(ls, 3)
 	assert_line_contains(ls, "a")
 	assert_line_contains(ls, "b")
 	assert_line_contains(ls, "c")
 	assert_has(raw, "x")
 	assert_has(raw, "y")
 	assert_has(raw, "z")
+	assert_line_order(ls, "a = 'x'", "b = 'y'")
+	assert_line_order(ls, "b = 'y'", "c = 'z'")
+
+
+def test_nested_list_unpacking(capsys):
+	[a, [b, c]] = log(1), [log(2), log(3)]
+
+	raw, ls = capture(capsys)
+
+	assert (a, b, c) == (1, 2, 3)
+	assert_line_count(ls, 3)
+	assert_line_order(ls, "a = 1", "b = 2")
+	assert_line_order(ls, "b = 2", "c = 3")
 
 
 def test_reassignment_same_line(capsys):

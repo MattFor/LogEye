@@ -1,5 +1,3 @@
-import pytest
-
 from helpers import (
 	count,
 	capture,
@@ -217,13 +215,7 @@ def test_watch_inside_function(capsys):
 	assert_has_change(out, "x", "end")
 
 
-@pytest.mark.xfail(
-	reason="TODO: decide semantics for same-value reassignment (set vs change)",
-	strict=False,
-)
 def test_multiple_lines_same_value_not_spammed(capsys):
-	# TODO: only emits once, we need to do it 3 times...
-
 	x = "a" | l
 	x = "a"
 	x = "a"
@@ -232,3 +224,30 @@ def test_multiple_lines_same_value_not_spammed(capsys):
 
 	assert count(ls, "(set) x = 'a'") == 1
 	assert count(ls, "(change) x = 'a'") == 2
+
+
+def test_reading_a_watched_name_is_not_reported(capsys):
+	x = "a" | l
+
+	y = x
+	z = x + "b"
+	if x:
+		pass
+
+	out, ls = capture(capsys)
+
+	assert (y, z) == ("a", "ab")
+
+	assert count(ls, "x = 'a'") == 1
+
+
+def test_same_value_reassigned_in_loop(capsys):
+	x = "a" | l
+
+	for _ in range(3):
+		x = "a"
+
+	out, ls = capture(capsys)
+
+	assert count(ls, "(set) x = 'a'") == 1
+	assert count(ls, "(change) x = 'a'") == 3
